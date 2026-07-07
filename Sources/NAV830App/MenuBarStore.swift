@@ -28,6 +28,11 @@ final class MenuBarStore: ObservableObject {
     /// Called on the main actor after each publish so an AppKit host can refresh the status item.
     var onPublish: (() -> Void)?
 
+    /// Launch-at-login toggle, backed by SMAppService.
+    @Published var launchAtLogin: Bool {
+        didSet { LoginItem.setEnabled(launchAtLogin) }
+    }
+
     // Cached inputs.
     private var nav: OfficialNAV?
     private var fx: FXRate?
@@ -47,6 +52,7 @@ final class MenuBarStore: ObservableObject {
     init(client: HTTPClient = URLSessionHTTPClient()) {
         let stored = UserDefaults.standard.object(forKey: Self.thresholdKey) as? Double
         self.thresholdPct = stored ?? 3.0
+        self.launchAtLogin = LoginItem.isEnabled
         self.navSource = CathayNAVSource(client: client)
         self.proxySource = FallbackProxySource([
             NasdaqProxySource(symbol: .soxx, client: client),

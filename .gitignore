@@ -24,6 +24,7 @@ venv/
 
 # App bundles / build output
 *.app
+dist/
 
 # Secrets / local config
 .env

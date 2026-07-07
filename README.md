@@ -10,13 +10,36 @@ macOS 選單列 App：即時顯示台股 **00830（國泰費城半導體 ETF）*
 
 完整的產品／架構方向見 [`PLAN.md`](./PLAN.md)。核心原則：**計算層與呈現層徹底分離**，日後要換成網頁或加告警只換殼、核心邏輯不動。
 
-## 現況
+## 架構
 
-規劃階段。技術選型與實作由 Claude Code 依 `PLAN.md` 評估後進行。
+Swift Package，三層模組（`NAV830Core` 對外零依賴，結構性保證分離）：
 
-## 開發起手式
+| 模組 | 職責 |
+|---|---|
+| **NAV830Core** | 計算層（靈魂）：重估淨值 / 折溢價 / 去槓桿 / 三代理交叉、`MarketClock` 時序狀態機（ET 基準、DST-aware）、US/TW 行事曆。純邏輯，無網路、無 UI。 |
+| **NAV830Fetch** | 資料源：TWSE MIS（市價）· Nasdaq（SOXX/SOXQ/SOXL）· open.er-api（匯率）· Cathay closingNav（每日淨值）；可注入 HTTPClient、SOXX→SOXQ→SOXL 降級。 |
+| **NAV830App** | 呈現層：AppKit `NSStatusItem`（彩色文字）+ `NSPopover`（SwiftUI 明細），依 `MarketPhase` 分層刷新。 |
 
-在此資料夾開 Claude Code，請它先讀 `PLAN.md`、回報技術選型與取捨、提出專案結構後再實作。
+**重估公式**（三時段通用）：`重估淨值 = 官方淨值 ×(最新美股價 / 基準收盤)× 匯率`。美股盤中用即時價、盤後用盤後價、台股盤中用凍結盤後價。
+
+## 開發
+
+```bash
+swift test            # 全部離線測試（含 §附錄 sanity check）
+NAV830_LIVE=1 swift test --filter LiveSmokeTests   # 打真實端點的煙霧測試
+swift run NAV830App   # 開發執行（選單列 app）
+```
+
+## 打包與安裝（自用，免簽章／公證）
+
+```bash
+scripts/publish.sh              # 產出 dist/NAV830.app（含圖示、ad-hoc 簽章）
+scripts/publish.sh --install    # 並複製到 /Applications
+```
+
+- 首次執行若被 Gatekeeper 擋：在「系統設定 → 隱私權與安全性」按「仍要打開」，或 `xattr -dr com.apple.quarantine /Applications/NAV830.app`。
+- **開機自動啟動**：popover 內勾選即可（用 `SMAppService`，需 app 在 `/Applications` 等穩定位置）。
+- **瀏海 MacBook 注意**：選單列右側太滿時，macOS 會把新項目丟進瀏海死區而看不到——保留一個空位，或搭配選單列管理工具（如 Ice）。
 
 ## 免責
 

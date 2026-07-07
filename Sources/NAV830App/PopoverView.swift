@@ -24,6 +24,8 @@ struct PopoverView: View {
             sources
             Divider()
             thresholdControl
+            Toggle("開機自動啟動", isOn: $store.launchAtLogin)
+                .toggleStyle(.checkbox).font(.caption)
             footer
         }
         .padding(14)
