@@ -1,0 +1,34 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode / Swift
+.build/
+build/
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+.swiftpm/
+
+# Tauri / Node
+node_modules/
+dist/
+src-tauri/target/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# App bundles / build output
+*.app
+
+# Secrets / local config
+.env
+.env.local
+config.local.*
+
+# Logs
+*.log

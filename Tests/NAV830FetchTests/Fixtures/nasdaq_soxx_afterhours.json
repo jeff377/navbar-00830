@@ -1,0 +1,30 @@
+{
+  "_comment": "SYNTHETIC fixture. Real Nasdaq shape (verified 2026-07-07), populated with PLAN §附錄 numbers: SOXX 7/6 regular close 581.51, after-hours 576.00 (-0.95%). Used to exercise the secondaryData (post-market) parse path, which cannot be captured live while the US regular session is open.",
+  "data": {
+    "symbol": "SOXX",
+    "companyName": "iShares PHLX SOX Semiconductor Sector Index Fund",
+    "exchange": "NASDAQ-GM",
+    "primaryData": {
+      "lastSalePrice": "$581.51",
+      "netChange": "+2.10",
+      "percentageChange": "+0.36%",
+      "deltaIndicator": "up",
+      "lastTradeTimestamp": "Jul 6, 2026 4:00 PM ET",
+      "isRealTime": false,
+      "currency": null
+    },
+    "secondaryData": {
+      "lastSalePrice": "$576.00",
+      "netChange": "-5.51",
+      "percentageChange": "-0.95%",
+      "deltaIndicator": "down",
+      "lastTradeTimestamp": "Jul 6, 2026 7:59 PM ET",
+      "isRealTime": false,
+      "currency": null
+    },
+    "marketStatus": "Closed",
+    "assetClass": "ETF"
+  },
+  "message": null,
+  "status": { "rCode": 200 }
+}
