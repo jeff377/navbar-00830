@@ -3,16 +3,19 @@ import Foundation
 /// The result of revaluing 00830 against a single proxy ETF.
 public struct Revaluation: Sendable, Equatable {
     public let proxy: ProxySymbol
-    /// De-leveraged after-hours return of the proxy (e.g. -0.0095 for -0.95%).
-    public let afterHoursReturn: Decimal
+    /// De-leveraged proxy return — the US move since the base close (e.g. -0.0095 for -0.95%).
+    public let proxyReturn: Decimal
+    /// Which US session the move came from (regular / after-hours / frozen).
+    public let session: ProxySession
     /// FX adjustment factor that was applied.
     public let fxFactor: Decimal
     /// Re-estimated intraday NAV in TWD.
     public let revaluedNAV: Decimal
 
-    public init(proxy: ProxySymbol, afterHoursReturn: Decimal, fxFactor: Decimal, revaluedNAV: Decimal) {
+    public init(proxy: ProxySymbol, proxyReturn: Decimal, session: ProxySession, fxFactor: Decimal, revaluedNAV: Decimal) {
         self.proxy = proxy
-        self.afterHoursReturn = afterHoursReturn
+        self.proxyReturn = proxyReturn
+        self.session = session
         self.fxFactor = fxFactor
         self.revaluedNAV = revaluedNAV
     }

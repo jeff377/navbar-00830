@@ -30,12 +30,13 @@ enum Fixtures {
         fetchedAt: at(2026, 7, 7, 9, 0, tz: "Asia/Taipei")
     )
 
-    /// SOXX 581.51 → 576.00 after-hours (−0.95%).
+    /// SOXX 581.51 base → 576.00 after-hours latest (−0.95%).
     static let soxx = ProxyQuote(
         symbol: .soxx,
-        regularClose: dec("581.51"),
-        afterHoursPrice: dec("576.00"),
-        afterHoursAt: at(2026, 7, 6, 20, 0, tz: "America/New_York")
+        baseClose: dec("581.51"),
+        latestPrice: dec("576.00"),
+        latestAt: at(2026, 7, 6, 20, 0, tz: "America/New_York"),
+        session: .afterHours
     )
 
     static let noFX = FXRate(current: dec("1"), reference: nil, timestamp: Date(timeIntervalSince1970: 0), source: "fixture")

@@ -24,6 +24,16 @@ public struct FeedSnapshot: Sendable {
     public let fx: FXRate?
     public let statuses: [SourceStatus]
     public let generatedAt: Date
+
+    public init(phase: MarketPhase, report: RevaluationReport?, officialNAV: OfficialNAV?, price: MarketPrice?, fx: FXRate?, statuses: [SourceStatus], generatedAt: Date) {
+        self.phase = phase
+        self.report = report
+        self.officialNAV = officialNAV
+        self.price = price
+        self.fx = fx
+        self.statuses = statuses
+        self.generatedAt = generatedAt
+    }
 }
 
 /// Assembles a `FeedSnapshot` by fetching all four inputs concurrently and feeding them

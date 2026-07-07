@@ -35,6 +35,13 @@ let package = Package(
             name: "NAV830FetchTests",
             dependencies: ["NAV830Fetch", "NAV830Core"],
             resources: [.copy("Fixtures")]
+        ),
+        .executableTarget(
+            name: "NAV830App",
+            dependencies: ["NAV830Core", "NAV830Fetch"],
+            swiftSettings: [
+                .enableUpcomingFeature("StrictConcurrency")
+            ]
         )
     ]
 )

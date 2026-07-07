@@ -4,19 +4,20 @@ import Foundation
 /// so the whole thing is deterministic and unit-testable against the PLAN §附錄 numbers.
 public enum NAVCalculator {
 
-    /// De-leveraged after-hours return of a proxy ETF.
+    /// De-leveraged proxy return: the US move since the base close.
     ///
-    /// `(afterHours − regularClose) / regularClose`, then divided by the proxy's leverage
-    /// so that SOXL's 3x move is reduced to the underlying 1x semiconductor move.
-    public static func afterHoursReturn(_ quote: ProxyQuote) -> Decimal {
-        guard quote.regularClose != 0 else { return 0 }
-        let raw = (quote.afterHoursPrice - quote.regularClose) / quote.regularClose
+    /// `(latestPrice − baseClose) / baseClose`, then divided by the proxy's leverage so that
+    /// SOXL's 3x move is reduced to the underlying 1x semiconductor move. Works in every phase —
+    /// the caller (source layer) picks the right `latestPrice`/`baseClose` pairing (PLAN §3).
+    public static func proxyReturn(_ quote: ProxyQuote) -> Decimal {
+        guard quote.baseClose != 0 else { return 0 }
+        let raw = (quote.latestPrice - quote.baseClose) / quote.baseClose
         return raw / Decimal(quote.symbol.leverage)
     }
 
-    /// Re-estimated intraday NAV = officialNAV × (1 + afterHoursReturn) × fxFactor.
-    public static func revaluedNAV(officialNAV: Decimal, afterHoursReturn: Decimal, fxFactor: Decimal) -> Decimal {
-        officialNAV * (1 + afterHoursReturn) * fxFactor
+    /// Re-estimated intraday NAV = officialNAV × (1 + proxyReturn) × fxFactor.
+    public static func revaluedNAV(officialNAV: Decimal, proxyReturn: Decimal, fxFactor: Decimal) -> Decimal {
+        officialNAV * (1 + proxyReturn) * fxFactor
     }
 
     /// Premium/discount of the market price against a revalued NAV. Negative ⇒ discount.
@@ -27,10 +28,10 @@ public enum NAVCalculator {
 
     /// Revalue against a single proxy.
     public static func revalue(officialNAV: OfficialNAV, proxy: ProxyQuote, fx: FXRate) -> Revaluation {
-        let ret = afterHoursReturn(proxy)
+        let ret = proxyReturn(proxy)
         let factor = fx.factor
-        let nav = revaluedNAV(officialNAV: officialNAV.value, afterHoursReturn: ret, fxFactor: factor)
-        return Revaluation(proxy: proxy.symbol, afterHoursReturn: ret, fxFactor: factor, revaluedNAV: nav)
+        let nav = revaluedNAV(officialNAV: officialNAV.value, proxyReturn: ret, fxFactor: factor)
+        return Revaluation(proxy: proxy.symbol, proxyReturn: ret, session: proxy.session, fxFactor: factor, revaluedNAV: nav)
     }
 
     /// Build the full report: SOXX as the primary value, the others as cross-checks.

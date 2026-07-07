@@ -14,17 +14,20 @@ final class SourceParsingTests: XCTestCase {
 
     func testNasdaqAfterHours() throws {
         let quote = try NasdaqProxySource.parse(fixtureData("nasdaq_soxx_afterhours"), symbol: .soxx)
-        XCTAssertEqual(dbl(quote.regularClose), 581.51, accuracy: 0.0001)
-        XCTAssertEqual(dbl(quote.afterHoursPrice), 576.00, accuracy: 0.0001)
+        XCTAssertEqual(quote.session, .afterHours)
+        XCTAssertEqual(dbl(quote.baseClose), 581.51, accuracy: 0.0001)   // primaryData regular close
+        XCTAssertEqual(dbl(quote.latestPrice), 576.00, accuracy: 0.0001) // secondaryData after-hours
         // The whole point: the parsed pair reproduces the appendix −0.95%.
-        XCTAssertEqual(dbl(NAVCalculator.afterHoursReturn(quote)), -0.0095, accuracy: 0.0002)
+        XCTAssertEqual(dbl(NAVCalculator.proxyReturn(quote)), -0.0095, accuracy: 0.0002)
     }
 
-    func testNasdaqDuringRegularSessionIsUnavailable() {
-        // secondaryData is null while the US regular session is open → no valid after-hours.
-        XCTAssertThrowsError(try NasdaqProxySource.parse(fixtureData("nasdaq_soxx_open"), symbol: .soxx)) { error in
-            guard case SourceError.unavailable = error else { return XCTFail("expected .unavailable, got \(error)") }
-        }
+    func testNasdaqRegularSessionUsesLiveVsPreviousClose() throws {
+        // marketStatus Open, no secondaryData: latest = live 543.97, base = 543.97 − (−37.54) = 581.51.
+        let quote = try NasdaqProxySource.parse(fixtureData("nasdaq_soxx_open"), symbol: .soxx)
+        XCTAssertEqual(quote.session, .regular)
+        XCTAssertEqual(dbl(quote.baseClose), 581.51, accuracy: 0.0001)
+        XCTAssertEqual(dbl(quote.latestPrice), 543.97, accuracy: 0.0001)
+        XCTAssertEqual(dbl(NAVCalculator.proxyReturn(quote)), -0.0646, accuracy: 0.0002) // matches Nasdaq −6.46%
     }
 
     func testERAPIFX() throws {

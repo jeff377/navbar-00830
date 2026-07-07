@@ -4,7 +4,7 @@ import NAV830Core
 
 final class FallbackProxySourceTests: XCTestCase {
     private func quote(_ s: ProxySymbol) -> ProxyQuote {
-        ProxyQuote(symbol: s, regularClose: 100, afterHoursPrice: 99, afterHoursAt: Date(timeIntervalSince1970: 0))
+        ProxyQuote(symbol: s, baseClose: 100, latestPrice: 99, latestAt: Date(timeIntervalSince1970: 0), session: .afterHours)
     }
 
     func testPrefersFirstWorkingSource() async throws {
@@ -55,8 +55,8 @@ final class DataFeedTests: XCTestCase {
             if s.contains("open.er-api.com") { return fixtureData("erapi_usd") }
             if s.contains("cwapi.cathaysite.com.tw") { return fixtureData("cathay_navlist") }
             if s.contains("api.nasdaq.com") {
-                // SOXX has frozen after-hours; SOXQ/SOXL fall back to the "market open" shape (no
-                // after-hours) so the feed proves it degrades to whatever proxy has data.
+                // SOXX serves the frozen after-hours shape; SOXQ/SOXL serve the regular-session
+                // (market-open) shape — both now parse, exercising both pairing paths at once.
                 return s.contains("/SOXX/") ? fixtureData("nasdaq_soxx_afterhours") : fixtureData("nasdaq_soxx_open")
             }
             return nil
@@ -84,14 +84,16 @@ final class DataFeedTests: XCTestCase {
         XCTAssertEqual(snap.phase, .taiwanTrading)
         XCTAssertNotNil(snap.report, "essential inputs present ⇒ report built")
         XCTAssertEqual(snap.report?.primary.proxy, .soxx)
-        // NAV 91.68 × (1 − 0.95%) ≈ 90.81; price 89.70 ⇒ ≈ −1.2% discount.
+        XCTAssertEqual(snap.report?.primary.session, .afterHours)
+        // SOXX after-hours: NAV 91.68 × (576/581.51) ≈ 90.81; price 89.70 ⇒ ≈ −1.2% discount.
         XCTAssertEqual(dbl(snap.report!.primary.revaluedNAV), 90.81, accuracy: 0.05)
         XCTAssertLessThan(snap.report!.premium, 0)
         XCTAssertEqual(dbl(snap.report!.premium), -0.012, accuracy: 0.004)
 
-        // Only SOXX had after-hours data; SOXQ/SOXL surfaced as failed (US regular session shape).
+        // All three proxies now parse (SOXX after-hours, SOXQ/SOXL regular-session).
         XCTAssertEqual(snap.statuses.first { $0.name == "Nasdaq SOXX" }?.ok, true)
-        XCTAssertEqual(snap.statuses.first { $0.name == "Nasdaq SOXQ" }?.ok, false)
+        XCTAssertEqual(snap.statuses.first { $0.name == "Nasdaq SOXQ" }?.ok, true)
+        XCTAssertEqual(snap.report?.crossChecks.count, 3)
         XCTAssertEqual(snap.statuses.first { $0.name == "Cathay NAV" }?.ok, true)
     }
 

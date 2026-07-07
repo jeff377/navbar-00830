@@ -1,37 +1,54 @@
 import Foundation
 
-/// A US semiconductor ETF used as a proxy for the PHLX SOX after-hours move.
+/// A US semiconductor ETF used as a proxy for the PHLX SOX move.
 public enum ProxySymbol: String, Sendable, CaseIterable {
     /// iShares Semiconductor ETF — tracks ICE Semiconductor. Primary (best liquidity).
     case soxx = "SOXX"
     /// Invesco PHLX Semiconductor ETF — tracks PHLX SOX (same index as 00830). Cross-check.
     case soxq = "SOXQ"
-    /// Direxion Daily Semiconductor Bull 3x — leveraged. After-hours move is 3x the underlying.
+    /// Direxion Daily Semiconductor Bull 3x — leveraged. Its move is 3x the underlying.
     case soxl = "SOXL"
 
-    /// Daily leverage factor. The after-hours percentage move must be divided by this
-    /// to recover the underlying (1x) semiconductor move.
+    /// Daily leverage factor. The proxy's percentage move is divided by this to recover the
+    /// underlying (1x) semiconductor move.
     public var leverage: Int {
         self == .soxl ? 3 : 1
     }
 }
 
-/// A proxy ETF quote pairing the regular-session close (the base the official NAV was
-/// priced against) with the latest after-hours print.
+/// Which US session the latest price came from — for display and freshness, and to be honest
+/// about what the estimate is built on (PLAN §3).
+public enum ProxySession: String, Sendable {
+    /// Live regular-session price (US market open).
+    case regular
+    /// Extended-hours price (post- or pre-market).
+    case afterHours
+    /// Frozen last print — regular session closed and no extended-hours data available.
+    case frozen
+}
+
+/// A proxy ETF quote: the latest available US price paired with the regular close that the
+/// official NAV is measured from. The revaluation move is `latestPrice / baseClose − 1`, which
+/// works in every phase (PLAN §3):
+///   · regular session → latest = live price, base = previous regular close
+///   · after-hours     → latest = extended price, base = that day's regular close
+///   · Taiwan trading  → latest = frozen extended price, base = the frozen regular close
 public struct ProxyQuote: Sendable, Equatable {
     public let symbol: ProxySymbol
-    /// Regular-session close of the US session that the latest official NAV incorporates.
-    public let regularClose: Decimal
-    /// Latest extended-hours (after-hours) price.
-    public let afterHoursPrice: Decimal
-    /// Timestamp of the after-hours print. Expected to be ~20:00 ET once the
-    /// after-hours session has ended; used to detect thin/stale noise prints.
-    public let afterHoursAt: Date
+    /// The last completed US regular-session close that the official NAV incorporates.
+    public let baseClose: Decimal
+    /// The most recent US price available.
+    public let latestPrice: Decimal
+    /// Timestamp of the latest price.
+    public let latestAt: Date
+    /// Which session `latestPrice` came from.
+    public let session: ProxySession
 
-    public init(symbol: ProxySymbol, regularClose: Decimal, afterHoursPrice: Decimal, afterHoursAt: Date) {
+    public init(symbol: ProxySymbol, baseClose: Decimal, latestPrice: Decimal, latestAt: Date, session: ProxySession) {
         self.symbol = symbol
-        self.regularClose = regularClose
-        self.afterHoursPrice = afterHoursPrice
-        self.afterHoursAt = afterHoursAt
+        self.baseClose = baseClose
+        self.latestPrice = latestPrice
+        self.latestAt = latestAt
+        self.session = session
     }
 }

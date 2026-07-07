@@ -3,15 +3,12 @@ import NAV830Core
 
 /// Proxy ETF quote from Nasdaq's public quote endpoint.
 ///
-/// `primaryData` is the regular session, `secondaryData` the extended (pre/post-market)
-/// session. During the Taiwan trading window the US market is closed and after-hours has
-/// ended, so Nasdaq serves a frozen `primaryData` (that session's regular close) plus a
-/// frozen `secondaryData` (its after-hours close) — exactly the pairing the revaluation needs.
-///
-/// When the US regular session is in progress, `secondaryData` is null and `primaryData` is a
-/// live intraday tick, not a close; `fetchQuote` reports `.unavailable` in that case because
-/// there is no valid after-hours increment to apply. The shell keys off `MarketPhase` and does
-/// not call this in that window.
+/// `primaryData` is the regular session, `secondaryData` the extended (pre/post-market) session.
+/// We produce a phase-agnostic (baseClose, latestPrice) pair so the revaluation works whenever
+/// there is any US price to apply (PLAN §3):
+///   · extended-hours present  → latest = secondaryData, base = primaryData regular close
+///   · regular session Open     → latest = primaryData (live), base = previous close (last − netChange)
+///   · closed, no extended      → latest = primaryData (last close), base = previous close
 public struct NasdaqProxySource: ProxySource {
     public let symbol: ProxySymbol
     private let client: HTTPClient
@@ -37,9 +34,11 @@ public struct NasdaqProxySource: ProxySource {
         struct Payload: Decodable {
             let primaryData: Tick?
             let secondaryData: Tick?
+            let marketStatus: String?
         }
         struct Tick: Decodable {
             let lastSalePrice: String?
+            let netChange: String?
             let lastTradeTimestamp: String?
         }
     }
@@ -49,22 +48,25 @@ public struct NasdaqProxySource: ProxySource {
         do { env = try JSONDecoder().decode(Envelope.self, from: data) }
         catch { throw SourceError.decoding("Nasdaq \(symbol.rawValue): \(error)") }
 
-        guard let payload = env.data else {
-            throw SourceError.unavailable("Nasdaq \(symbol.rawValue): no data (symbol not listed?)")
+        guard let payload = env.data, let primary = payload.primaryData,
+              let regularStr = primary.lastSalePrice, let regular = Parse.decimal(regularStr) else {
+            throw SourceError.unavailable("Nasdaq \(symbol.rawValue): no primary price (symbol not listed?)")
         }
-        guard
-            let regularStr = payload.primaryData?.lastSalePrice,
-            let regularClose = Parse.decimal(regularStr)
-        else {
-            throw SourceError.unavailable("Nasdaq \(symbol.rawValue): no regular price")
+
+        // Extended-hours present → it is the freshest price; base is the regular close (primary).
+        if let extStr = payload.secondaryData?.lastSalePrice, let ext = Parse.decimal(extStr) {
+            let at = payload.secondaryData?.lastTradeTimestamp.flatMap(Parse.nasdaqTimestamp) ?? Date()
+            return ProxyQuote(symbol: symbol, baseClose: regular, latestPrice: ext, latestAt: at, session: .afterHours)
         }
-        guard
-            let afterStr = payload.secondaryData?.lastSalePrice,
-            let afterHours = Parse.decimal(afterStr)
-        else {
-            throw SourceError.unavailable("Nasdaq \(symbol.rawValue): no after-hours print (US regular session in progress?)")
+
+        // No extended data. `primary` is the latest price (live if Open, else last close); the
+        // base is the previous regular close, recovered as lastSalePrice − netChange.
+        guard let chgStr = primary.netChange, let change = Parse.decimal(chgStr) else {
+            throw SourceError.unavailable("Nasdaq \(symbol.rawValue): no netChange to derive base close")
         }
-        let afterAt = payload.secondaryData?.lastTradeTimestamp.flatMap(Parse.nasdaqTimestamp) ?? Date()
-        return ProxyQuote(symbol: symbol, regularClose: regularClose, afterHoursPrice: afterHours, afterHoursAt: afterAt)
+        let base = regular - change
+        let at = primary.lastTradeTimestamp.flatMap(Parse.nasdaqTimestamp) ?? Date()
+        let session: ProxySession = (payload.marketStatus?.caseInsensitiveCompare("Open") == .orderedSame) ? .regular : .frozen
+        return ProxyQuote(symbol: symbol, baseClose: base, latestPrice: regular, latestAt: at, session: session)
     }
 }
