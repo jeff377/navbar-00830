@@ -53,20 +53,26 @@ public struct NasdaqProxySource: ProxySource {
             throw SourceError.unavailable("Nasdaq \(symbol.rawValue): no primary price (symbol not listed?)")
         }
 
-        // Extended-hours present → it is the freshest price; base is the regular close (primary).
+        // The official NAV always already reflects the most recent *completed* regular close.
+        // So `baseClose` must be that completed close, and `latestPrice` whatever came after it —
+        // otherwise we re-apply a move the official NAV already contains (double-counting).
+        let at = primary.lastTradeTimestamp.flatMap(Parse.nasdaqTimestamp) ?? Date()
+
+        // Extended-hours present → freshest price; the completed close is `primary`.
         if let extStr = payload.secondaryData?.lastSalePrice, let ext = Parse.decimal(extStr) {
-            let at = payload.secondaryData?.lastTradeTimestamp.flatMap(Parse.nasdaqTimestamp) ?? Date()
-            return ProxyQuote(symbol: symbol, baseClose: regular, latestPrice: ext, latestAt: at, session: .afterHours)
+            let extAt = payload.secondaryData?.lastTradeTimestamp.flatMap(Parse.nasdaqTimestamp) ?? at
+            return ProxyQuote(symbol: symbol, baseClose: regular, latestPrice: ext, latestAt: extAt, session: .afterHours)
         }
 
-        // No extended data. `primary` is the latest price (live if Open, else last close); the
-        // base is the previous regular close, recovered as lastSalePrice − netChange.
-        guard let chgStr = primary.netChange, let change = Parse.decimal(chgStr) else {
-            throw SourceError.unavailable("Nasdaq \(symbol.rawValue): no netChange to derive base close")
+        // Regular session live → `primary` is a live tick, not a close. The completed close is the
+        // previous one, recovered as lastSalePrice − netChange; the intraday move sits on top of it.
+        if payload.marketStatus?.caseInsensitiveCompare("Open") == .orderedSame,
+           let chgStr = primary.netChange, let change = Parse.decimal(chgStr) {
+            return ProxyQuote(symbol: symbol, baseClose: regular - change, latestPrice: regular, latestAt: at, session: .regular)
         }
-        let base = regular - change
-        let at = primary.lastTradeTimestamp.flatMap(Parse.nasdaqTimestamp) ?? Date()
-        let session: ProxySession = (payload.marketStatus?.caseInsensitiveCompare("Open") == .orderedSame) ? .regular : .frozen
-        return ProxyQuote(symbol: symbol, baseClose: base, latestPrice: regular, latestAt: at, session: session)
+
+        // Closed, no extended data → frozen at the last completed regular close, which the official
+        // NAV already reflects. base == latest ⇒ zero added move ⇒ revalued NAV == official NAV.
+        return ProxyQuote(symbol: symbol, baseClose: regular, latestPrice: regular, latestAt: at, session: .frozen)
     }
 }

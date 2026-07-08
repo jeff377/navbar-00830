@@ -1,0 +1,17 @@
+{
+  "_comment": "Real Nasdaq shape captured 2026-07-08 09:17 TW (US closed, after-hours over → secondaryData null). primaryData is the last completed regular close (7/7). The official 7/7 NAV already reflects this close, so the revaluation must add zero move.",
+  "data": {
+    "symbol": "SOXX",
+    "primaryData": {
+      "lastSalePrice": "$551.69",
+      "netChange": "-29.82",
+      "percentageChange": "-5.13%",
+      "lastTradeTimestamp": "Jul 7, 2026",
+      "currency": null
+    },
+    "secondaryData": null,
+    "marketStatus": "Closed",
+    "assetClass": "ETF"
+  },
+  "status": { "rCode": 200 }
+}

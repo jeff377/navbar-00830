@@ -12,6 +12,7 @@ func fixtureData(_ name: String, file: StaticString = #filePath, line: UInt = #l
 }
 
 func dbl(_ d: Decimal) -> Double { (d as NSDecimalNumber).doubleValue }
+func dec(_ s: String) -> Decimal { Decimal(string: s)! }
 
 func at(_ y: Int, _ mo: Int, _ d: Int, _ h: Int, _ mi: Int, tz: String) -> Date {
     var cal = Calendar(identifier: .gregorian)

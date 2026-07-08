@@ -28,6 +28,20 @@ final class SourceParsingTests: XCTestCase {
         XCTAssertEqual(dbl(NAVCalculator.proxyReturn(quote)), -0.0095, accuracy: 0.0002)
     }
 
+    func testNasdaqFrozenAddsNoMove() throws {
+        // US closed, no after-hours: base == latest == the last regular close, so the proxy adds
+        // zero move — the official NAV already reflects this close (no double-counting).
+        let quote = try NasdaqProxySource.parse(fixtureData("nasdaq_soxx_frozen"), symbol: .soxx)
+        XCTAssertEqual(quote.session, .frozen)
+        XCTAssertEqual(dbl(quote.baseClose), 551.69, accuracy: 0.0001)
+        XCTAssertEqual(dbl(quote.latestPrice), 551.69, accuracy: 0.0001)
+        XCTAssertEqual(dbl(NAVCalculator.proxyReturn(quote)), 0, accuracy: 1e-9)
+        // ⇒ revalued NAV equals the official NAV.
+        let nav = OfficialNAV(value: dec("87.73"), navDate: Date(), source: "t", fetchedAt: Date())
+        let r = NAVCalculator.revalue(officialNAV: nav, proxy: quote, fx: FXRate(current: 1, reference: nil, timestamp: Date(), source: "t"))
+        XCTAssertEqual(dbl(r.revaluedNAV), 87.73, accuracy: 0.001)
+    }
+
     func testNasdaqRegularSessionUsesLiveVsPreviousClose() throws {
         // marketStatus Open, no secondaryData: latest = live 543.97, base = 543.97 − (−37.54) = 581.51.
         let quote = try NasdaqProxySource.parse(fixtureData("nasdaq_soxx_open"), symbol: .soxx)
