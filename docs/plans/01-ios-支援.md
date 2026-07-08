@@ -40,21 +40,31 @@ navbar-00830/
 4. ✅ macOS 殼(`NAV830App`)改依賴 `NAV830UI`,57 測試綠、app 行為不變。
 5. ✅ **iOS 編譯驗證**:`xcodebuild -scheme NAV830UI -destination 'generic/platform=iOS Simulator'` → BUILD SUCCEEDED(Core+Fetch+UI 全數 iOS 可編)。
 
-### Phase 2 — iOS App + Widget(需 Xcode)
+### Phase 2 — iOS App + Widget ✅ 命令列建置/模擬器執行已驗證
 
-**程式碼骨架已寫好**(待加入 Xcode target):
+**程式碼骨架已寫好並實測**(iPhone 17 模擬器跑出 live 數據,與 macOS 殼同一計算):
 - `Apps/iOS/NAV830iOSApp.swift` + `ContentView.swift`:App 進入點 + 主畫面(重用 `DetailView`,前景/下拉刷新)。
 - `Apps/Widget/NAV830Widget.swift`:Widget bundle + `TimelineProvider`(呼叫 `DataFeed.live()`,套用與選單列相同的 `LabelPresentation`)+ 小/中尺寸畫面。
 
-**在 Xcode 建置步驟:**
+**方式 A|命令列(XcodeGen,免 Xcode GUI、模擬器免簽章)** — 已驗證:
 
-1. **新增 Xcode 專案**:File → New → Project → iOS App(SwiftUI),存到 `Apps/NAV830.xcodeproj`。
-2. **加本地套件**:File → Add Package Dependencies → Add Local → 選 repo 根目錄 → 加 `NAV830Core`/`NAV830Fetch`/`NAV830UI` 三個 library。
-3. **iOS App target**:把預設 `ContentView.swift`/`App.swift` 換成 `Apps/iOS/` 這兩檔;Link 三個 library。
-4. **Widget Extension**:File → New → Target → Widget Extension(部署目標設 **iOS 17**);把產生的檔案換成 `Apps/Widget/NAV830Widget.swift`;Link 三個 library。
-5. **App Group**(讓 Widget 與 App 共用門檻設定):兩個 target 都加 App Group capability(如 `group.com.jeff.navbar00830`),把 `Apps/Widget` 的 `UserDefaults.standard` 改成 `UserDefaults(suiteName:)`(見該檔 TODO)。
-6. **簽章**:Signing & Capabilities 選你的 Team;免費 Apple ID 可簽到自機(7 天),付費帳號 1 年 + TestFlight。
-7. **跑**:選 iPhone 模擬器或實機執行;長按主畫面加 Widget。
+```bash
+brew install xcodegen                         # 一次
+cd Apps && xcodegen generate                  # project.yml → NAV830.xcodeproj(產生物,已 gitignore)
+xcodebuild -project NAV830.xcodeproj -scheme NAV830iOS \
+  -destination 'platform=iOS Simulator,name=iPhone 17' -derivedDataPath build build
+xcrun simctl boot "iPhone 17"; open -a Simulator
+xcrun simctl install booted "$(find Apps/build/Build/Products -name NAV830iOS.app | head -1)"
+xcrun simctl launch booted com.jeff.navbar00830.ios
+```
+
+`Apps/project.yml` 已定義好 App + Widget 兩個 target、引用本地套件三個 library。改設定改 `project.yml` 後重跑 `xcodegen generate`。
+
+**方式 B|Xcode GUI**(要上實機簽章時):`open Apps/NAV830.xcodeproj` → Signing & Capabilities 選你的 Team → 選實機執行。免費 Apple ID 可簽到自機(7 天),付費帳號 1 年 + TestFlight。
+
+**待補**:
+- **App Group**(Widget 與 App 共用門檻):兩 target 加 App Group capability,把 `Apps/Widget` 的 `UserDefaults.standard` 改 `UserDefaults(suiteName:)`(見該檔 TODO)。
+- **Widget 上主畫面**:模擬器/實機長按主畫面 → 加「00830 折溢價」小工具。
 
 ### Phase 3(選配)
 
