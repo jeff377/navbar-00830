@@ -1,5 +1,5 @@
 import XCTest
-@testable import NAV830App
+@testable import NAV830UI
 import NAV830Core
 
 /// Covers the menu-bar label decision — especially the behaviour the user asked for: during the

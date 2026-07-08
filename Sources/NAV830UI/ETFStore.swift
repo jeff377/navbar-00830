@@ -3,20 +3,21 @@ import SwiftUI
 import NAV830Core
 import NAV830Fetch
 
-/// Drives the menu bar: holds the latest cached inputs, refreshes them on phase-tiered
-/// cadences, recomputes the revaluation, and publishes formatted view state.
+/// Cross-platform view model: holds the latest cached inputs, refreshes them on phase-tiered
+/// cadences, recomputes the revaluation, and publishes formatted view state. Shared by the macOS
+/// menu-bar shell and the iOS app.
 ///
 /// Tiering (PLAN §5): the 00830 price is the only thing that moves during the Taiwan session,
 /// so it refreshes fast; the after-hours proxies are frozen then, so they refresh slowly. In
 /// the US after-hours window the proxies move, so they refresh every tick.
 @MainActor
-final class MenuBarStore: ObservableObject {
+public final class ETFStore: ObservableObject {
 
     // Published view state.
-    @Published private(set) var labelText: String = "00830 …"
-    @Published private(set) var labelState: LabelState = .muted
-    @Published private(set) var snapshot: FeedSnapshot?
-    @Published var thresholdPct: Double {
+    @Published public private(set) var labelText: String = "00830 …"
+    @Published public private(set) var labelState: LabelState = .muted
+    @Published public private(set) var snapshot: FeedSnapshot?
+    @Published public var thresholdPct: Double {
         didSet {
             UserDefaults.standard.set(thresholdPct, forKey: Self.thresholdKey)
             recompute()
@@ -26,12 +27,14 @@ final class MenuBarStore: ObservableObject {
     static let thresholdKey = "discountThresholdPct"
 
     /// Called on the main actor after each publish so an AppKit host can refresh the status item.
-    var onPublish: (() -> Void)?
+    public var onPublish: (() -> Void)?
 
-    /// Launch-at-login toggle, backed by SMAppService.
-    @Published var launchAtLogin: Bool {
+    #if os(macOS)
+    /// Launch-at-login toggle, backed by SMAppService (macOS only).
+    @Published public var launchAtLogin: Bool {
         didSet { LoginItem.setEnabled(launchAtLogin) }
     }
+    #endif
 
     // Cached inputs.
     private var nav: OfficialNAV?
@@ -50,10 +53,12 @@ final class MenuBarStore: ObservableObject {
     private let clock = MarketClock()
     private var loopTask: Task<Void, Never>?
 
-    init(client: HTTPClient = URLSessionHTTPClient()) {
+    public init(client: HTTPClient = URLSessionHTTPClient()) {
         let stored = UserDefaults.standard.object(forKey: Self.thresholdKey) as? Double
         self.thresholdPct = stored ?? 3.0
+        #if os(macOS)
         self.launchAtLogin = LoginItem.isEnabled
+        #endif
         self.cathaySource = CathayETFSource(client: client)
         self.proxySource = FallbackProxySource([
             NasdaqProxySource(symbol: .soxx, client: client),
@@ -68,7 +73,7 @@ final class MenuBarStore: ObservableObject {
 
     /// Idempotent entry point called from the menu-bar label's `.task`. In demo mode it loads
     /// fixture numbers instead of starting the live refresh loop.
-    func startOnce() {
+    public func startOnce() {
         guard !started else { return }
         started = true
         if ProcessInfo.processInfo.environment["NAV830_DEMO"] == "1" {
@@ -78,12 +83,12 @@ final class MenuBarStore: ObservableObject {
         }
     }
 
-    func start() {
+    public func start() {
         loopTask?.cancel()
         loopTask = Task { [weak self] in await self?.loop() }
     }
 
-    func stop() { loopTask?.cancel() }
+    public func stop() { loopTask?.cancel() }
 
     private func loop() async {
         while !Task.isCancelled {
@@ -114,7 +119,7 @@ final class MenuBarStore: ObservableObject {
 
     // MARK: - Refresh
 
-    func refreshNow() { Task { await refresh(phase: clock.phase(at: Date())) } }
+    public func refreshNow() { Task { await refresh(phase: clock.phase(at: Date())) } }
 
     private func refresh(phase: MarketPhase) async {
         // Cathay ETF: NAV + market price in one call, every tick (the price moves during TW hours).
@@ -148,7 +153,7 @@ final class MenuBarStore: ObservableObject {
         publish(snap)
     }
 
-    private(set) var liveness: Liveness = .noData
+    public private(set) var liveness: Liveness = .noData
 
     private func publish(_ snap: FeedSnapshot) {
         snapshot = snap
@@ -186,7 +191,7 @@ final class MenuBarStore: ObservableObject {
 
     /// Loads the PLAN §附錄 numbers as a taiwanTrading snapshot so the label/popover can be
     /// verified regardless of the current market phase. Enabled via NAV830_DEMO=1.
-    func loadDemo() {
+    public func loadDemo() {
         let navFix = OfficialNAV(value: Decimal(string: "91.68")!, navDate: Date(), source: "demo", fetchedAt: Date())
         let soxx = ProxyQuote(symbol: .soxx, baseClose: Decimal(string: "581.51")!, latestPrice: Decimal(string: "576.00")!, latestAt: Date(), session: .afterHours)
         let soxq = ProxyQuote(symbol: .soxq, baseClose: Decimal(string: "95.00")!, latestPrice: Decimal(string: "94.10")!, latestAt: Date(), session: .afterHours)

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import NAV830UI
 
 /// Diagnostic: renders the menu-bar label in each alert colour to a PNG so the colour path can
 /// be verified without a visible menu-bar slot. Triggered by NAV830_RENDER=/path; exits after.

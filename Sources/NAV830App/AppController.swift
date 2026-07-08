@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import NAV830UI
 
 /// Owns the menu-bar status item and the click-through popover, and keeps the status item's
 /// coloured title in sync with the store.
@@ -7,7 +8,7 @@ import SwiftUI
 final class AppController: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
-    private let store = MenuBarStore()
+    private let store = ETFStore()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -19,7 +20,7 @@ final class AppController: NSObject, NSApplicationDelegate {
 
         popover.behavior = .transient
         popover.contentSize = NSSize(width: 320, height: 480)
-        popover.contentViewController = NSHostingController(rootView: PopoverView(store: store))
+        popover.contentViewController = NSHostingController(rootView: DetailView(store: store))
 
         // The store drives the label; refresh the status item every time it publishes.
         store.onPublish = { [weak self] in self?.refreshButton() }

@@ -32,12 +32,13 @@ navbar-00830/
 
 ## 分階段
 
-### Phase 1 — 共用層跨平台化(在 SPM 內,低風險,不影響 Mac app)
+### Phase 1 — 共用層跨平台化(在 SPM 內,低風險,不影響 Mac app)✅ 已完成
 
-1. `Package.swift` 平台加 `.iOS(.v16)`。
-2. 抽出 `NAV830UI` 模組:把 `PopoverView` 明細內容跨平台化(`NSApplication.terminate` 等 AppKit 呼叫用 `#if os(macOS)` 隔離)。
-3. `MenuBarStore` 的刷新迴圈 / 快取 / `LabelPresentation` 抽成跨平台 `ETFStore`;`LoginItem`(`SMAppService`)用 `#if os(macOS)` 隔離。
-4. macOS 殼改用共用 `NAV830UI` / `ETFStore`,確認行為不變。
+1. ✅ `Package.swift` 平台加 `.iOS(.v16)`;新增 `NAV830UI` library。
+2. ✅ 抽出 `NAV830UI` 模組:`PopoverView`→跨平台 `DetailView`(`NSApplication.terminate`、開機自啟 Toggle 用 `#if os(macOS)` 隔離)。
+3. ✅ `MenuBarStore`→跨平台 `ETFStore`(公開刷新/快取/`LabelPresentation`);`LoginItem`(`SMAppService`)整檔 `#if os(macOS)`。
+4. ✅ macOS 殼(`NAV830App`)改依賴 `NAV830UI`,57 測試綠、app 行為不變。
+5. ✅ **iOS 編譯驗證**:`xcodebuild -scheme NAV830UI -destination 'generic/platform=iOS Simulator'` → BUILD SUCCEEDED(Core+Fetch+UI 全數 iOS 可編)。
 
 ### Phase 2 — iOS App + Widget(需 Xcode)
 

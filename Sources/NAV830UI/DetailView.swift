@@ -1,12 +1,19 @@
 import SwiftUI
 import NAV830Core
 import NAV830Fetch
+#if os(macOS)
+import AppKit
+#endif
 
-/// The detail panel shown when the menu-bar item is clicked (PLAN §5).
-struct PopoverView: View {
-    @ObservedObject var store: MenuBarStore
+/// The detail panel — shown in the macOS popover and as the iOS app's main screen (PLAN §5).
+public struct DetailView: View {
+    @ObservedObject var store: ETFStore
 
-    var body: some View {
+    public init(store: ETFStore) {
+        self.store = store
+    }
+
+    public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
             Divider()
@@ -24,12 +31,14 @@ struct PopoverView: View {
             sources
             Divider()
             thresholdControl
+            #if os(macOS)
             Toggle("開機自動啟動", isOn: $store.launchAtLogin)
                 .toggleStyle(.checkbox).font(.caption)
+            #endif
             footer
         }
         .padding(14)
-        .frame(width: 320)
+        .frame(maxWidth: 360)
     }
 
     // MARK: - Sections
@@ -112,7 +121,9 @@ struct PopoverView: View {
         HStack {
             Button("立即刷新") { store.refreshNow() }.controlSize(.small)
             Spacer()
+            #if os(macOS)
             Button("結束") { NSApplication.shared.terminate(nil) }.controlSize(.small)
+            #endif
         }
     }
 

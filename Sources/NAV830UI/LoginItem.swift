@@ -1,9 +1,10 @@
+#if os(macOS)
 import Foundation
 import ServiceManagement
 
-/// Launch-at-login via `SMAppService` (macOS 13+). Works once the app runs from a stable
-/// location (e.g. /Applications) as a proper bundle; from a raw `swift run` the status is
-/// typically `.notFound` and toggling is a no-op, which is fine for development.
+/// Launch-at-login via `SMAppService` (macOS 13+). macOS-only — iOS has no launch-at-login.
+/// Works once the app runs from a stable location (e.g. /Applications) as a proper bundle; from a
+/// raw `swift run` the status is typically `.notFound` and toggling is a no-op.
 @MainActor
 enum LoginItem {
     static var isEnabled: Bool {
@@ -22,3 +23,4 @@ enum LoginItem {
         }
     }
 }
+#endif
