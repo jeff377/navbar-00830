@@ -42,6 +42,38 @@ final class SourceParsingTests: XCTestCase {
         XCTAssertEqual(dbl(r.revaluedNAV), 87.73, accuracy: 0.001)
     }
 
+    func testExtendedPostParse() throws {
+        // "$544.6 -36.91 (-6.35%)" → 544.6
+        let post = try XCTUnwrap(NasdaqProxySource.parseExtendedPost(fixtureData("nasdaq_soxx_extended_post")))
+        XCTAssertEqual(dbl(post), 544.6, accuracy: 0.0001)
+    }
+
+    func testFrozenTopsUpWithRetainedPostMarket() async throws {
+        // Frozen info (regular close 551.69) + retained post-market (544.6) ⇒ apply the −1.28%
+        // post-market move on top of the regular close (PLAN §2), during the Taiwan session.
+        let client = StubHTTPClient { url in
+            let s = url.absoluteString
+            if s.contains("extended-trading") { return fixtureData("nasdaq_soxx_extended_post") }
+            if s.contains("/info") { return fixtureData("nasdaq_soxx_frozen") }
+            return nil
+        }
+        let quote = try await NasdaqProxySource(symbol: .soxx, client: client).fetchQuote()
+        XCTAssertEqual(quote.session, .afterHours)
+        XCTAssertEqual(dbl(quote.baseClose), 551.69, accuracy: 0.0001)
+        XCTAssertEqual(dbl(quote.latestPrice), 544.6, accuracy: 0.0001)
+        XCTAssertEqual(dbl(NAVCalculator.proxyReturn(quote)), -0.01285, accuracy: 0.0002)
+    }
+
+    func testFrozenWithoutExtendedStaysFrozen() async throws {
+        // If the extended endpoint is unavailable, fall back to frozen (revalued == official NAV).
+        let client = StubHTTPClient { url in
+            url.absoluteString.contains("/info") ? fixtureData("nasdaq_soxx_frozen") : nil
+        }
+        let quote = try await NasdaqProxySource(symbol: .soxx, client: client).fetchQuote()
+        XCTAssertEqual(quote.session, .frozen)
+        XCTAssertEqual(dbl(NAVCalculator.proxyReturn(quote)), 0, accuracy: 1e-9)
+    }
+
     func testNasdaqRegularSessionUsesLiveVsPreviousClose() throws {
         // marketStatus Open, no secondaryData: latest = live 543.97, base = 543.97 − (−37.54) = 581.51.
         let quote = try NasdaqProxySource.parse(fixtureData("nasdaq_soxx_open"), symbol: .soxx)
