@@ -13,10 +13,17 @@ final class SourceParsingTests: XCTestCase {
     }
 
     func testTWSEPreOpenFallsBackToPreviousClose() throws {
-        // Pre-open: z="-" (no trade yet) ⇒ use y (昨收) as the last-known price, so the no-quote
+        // Pre-open: z="-" and no bid/ask ⇒ use y (昨收) as the last-known price, so the no-quote
         // gap still produces a comparison instead of failing.
         let price = try TWSEMISPriceSource.parse(fixtureData("twse_mis_preopen"))
         XCTAssertEqual(dbl(price.price), 89.70, accuracy: 0.0001)
+    }
+
+    func testTWSEIntradayUsesBidAskMidWhenNoLastTrade() throws {
+        // Continuous session with z="-" but a live quote (ask 88.70 / bid 88.60) ⇒ midpoint 88.65,
+        // NOT the stale prior close 89.70.
+        let price = try TWSEMISPriceSource.parse(fixtureData("twse_mis_trading"))
+        XCTAssertEqual(dbl(price.price), 88.65, accuracy: 0.0001)
     }
 
     func testNasdaqAfterHours() throws {

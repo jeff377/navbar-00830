@@ -24,8 +24,10 @@ public struct TWSEMISPriceSource: PriceSource {
     private struct Envelope: Decodable {
         let msgArray: [Quote]
         struct Quote: Decodable {
-            let z: String?       // last traded price (today) — "-" before the first trade
-            let y: String?       // 昨收 (previous close) — the last-known price pre-open
+            let z: String?       // last traded price — often "-" between matches / intraday
+            let a: String?       // ask ladder, "_"-separated (best ask first)
+            let b: String?       // bid ladder, "_"-separated (best bid first)
+            let y: String?       // 昨收 (previous close)
             let tlong: String?   // epoch millis
         }
     }
@@ -38,13 +40,25 @@ public struct TWSEMISPriceSource: PriceSource {
         guard let quote = env.msgArray.first else {
             throw SourceError.unavailable("TWSE MIS: empty msgArray")
         }
-        // Before the first trade of the day (pre-open / no-quote gap) `z` is "-"; fall back to the
-        // previous close `y`, which is the last-known 00830 price the revaluation compares against.
-        let price = quote.z.flatMap(Parse.decimal) ?? quote.y.flatMap(Parse.decimal)
+        // Price priority: last trade `z` when present; otherwise the live best bid/ask midpoint
+        // (MIS often returns z="-" mid-session while the quote is live); otherwise the previous
+        // close `y` (pre-open / no market). Only `y` alone is a stale last-known value.
+        let price = Parse.decimal(quote.z ?? "")
+            ?? Self.bidAskMid(ask: quote.a, bid: quote.b)
+            ?? Parse.decimal(quote.y ?? "")
         guard let price else {
             throw SourceError.unavailable("TWSE MIS: no price (z=\(quote.z ?? "nil"), y=\(quote.y ?? "nil"))")
         }
         let timestamp = quote.tlong.flatMap(Parse.epochMillis) ?? Date()
         return MarketPrice(price: price, timestamp: timestamp, source: "TWSE MIS")
+    }
+
+    /// Midpoint of the best bid and best ask, if both are present.
+    private static func bidAskMid(ask: String?, bid: String?) -> Decimal? {
+        func best(_ ladder: String?) -> Decimal? {
+            ladder?.split(separator: "_").first.flatMap { Parse.decimal(String($0)) }
+        }
+        guard let a = best(ask), let b = best(bid) else { return nil }
+        return (a + b) / 2
     }
 }
