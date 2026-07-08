@@ -14,11 +14,6 @@ public enum SourceError: Error, Sendable, Equatable {
     case allFailed([SourceError])
 }
 
-/// Live market price of 00830 on the Taiwan exchange.
-public protocol PriceSource: Sendable {
-    func fetchPrice() async throws -> MarketPrice
-}
-
 /// A proxy ETF quote (regular close + after-hours) for one symbol.
 public protocol ProxySource: Sendable {
     var symbol: ProxySymbol { get }
@@ -29,9 +24,4 @@ public protocol ProxySource: Sendable {
 /// (nil ⇒ the resulting factor is 1).
 public protocol FXSource: Sendable {
     func fetchFX(reference: Decimal?) async throws -> FXRate
-}
-
-/// Latest official daily NAV of 00830.
-public protocol NAVSource: Sendable {
-    func fetchNAV() async throws -> OfficialNAV
 }

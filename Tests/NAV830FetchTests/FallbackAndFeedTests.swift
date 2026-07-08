@@ -44,42 +44,13 @@ final class FallbackProxySourceTests: XCTestCase {
     }
 }
 
-final class FallbackPriceSourceTests: XCTestCase {
-    private struct StubPrice: PriceSource {
-        let outcome: Result<MarketPrice, SourceError>
-        func fetchPrice() async throws -> MarketPrice { try outcome.get() }
-    }
-    private func price(_ p: String) -> MarketPrice {
-        MarketPrice(price: Decimal(string: p)!, timestamp: Date(timeIntervalSince1970: 0), source: "stub")
-    }
-
-    func testUsesCathayFirst() async throws {
-        let fb = FallbackPriceSource([
-            StubPrice(outcome: .success(price("88.8"))),
-            StubPrice(outcome: .success(price("88.65")))
-        ])
-        let result = try await fb.fetchPrice()
-        XCTAssertEqual(dbl(result.price), 88.8, accuracy: 0.0001)
-    }
-
-    func testFallsBackToTWSEWhenCathayFails() async throws {
-        let fb = FallbackPriceSource([
-            StubPrice(outcome: .failure(.unavailable("cathay down"))),
-            StubPrice(outcome: .success(price("88.65")))
-        ])
-        let result = try await fb.fetchPrice()
-        XCTAssertEqual(dbl(result.price), 88.65, accuracy: 0.0001)
-    }
-}
-
-/// The M2 crown: the full pipeline from raw recorded bytes to a premium/discount, wired exactly
-/// as the live app, but with the network stubbed by fixtures.
+/// The full pipeline from raw recorded bytes to a premium/discount, wired exactly as the live
+/// app, but with the network stubbed by fixtures.
 final class DataFeedTests: XCTestCase {
 
     private func stubClient() -> StubHTTPClient {
         StubHTTPClient { url in
             let s = url.absoluteString
-            if s.contains("mis.twse.com.tw") { return fixtureData("twse_mis_00830") }
             if s.contains("open.er-api.com") { return fixtureData("erapi_usd") }
             if s.contains("cwapi.cathaysite.com.tw") { return fixtureData("cathay_navlist") }
             if s.contains("api.nasdaq.com") {
@@ -91,50 +62,38 @@ final class DataFeedTests: XCTestCase {
         }
     }
 
-    func testFullPipelineProducesDiscount() async {
-        let client = stubClient()
-        // Fixed instant inside the Taiwan trading window.
-        let now = at(2026, 7, 7, 10, 0, tz: "Asia/Taipei")
-        let feed = DataFeed(
-            nav: CathayNAVSource(client: client),
+    private func feed(_ client: StubHTTPClient) -> DataFeed {
+        DataFeed(
+            cathay: CathayETFSource(client: client),
             proxies: FallbackProxySource([
                 NasdaqProxySource(symbol: .soxx, client: client),
                 NasdaqProxySource(symbol: .soxq, client: client),
                 NasdaqProxySource(symbol: .soxl, client: client)
             ]),
             fx: ERAPIFXSource(client: client),
-            price: TWSEMISPriceSource(client: client),
-            now: { now }
+            now: { at(2026, 7, 7, 10, 0, tz: "Asia/Taipei") }
         )
+    }
 
-        let snap = await feed.snapshot()
+    func testFullPipelineProducesDiscount() async {
+        let snap = await feed(stubClient()).snapshot()
 
         XCTAssertEqual(snap.phase, .taiwanTrading)
         XCTAssertNotNil(snap.report, "essential inputs present ⇒ report built")
         XCTAssertEqual(snap.report?.primary.proxy, .soxx)
         XCTAssertEqual(snap.report?.primary.session, .afterHours)
-        // SOXX after-hours: NAV 91.68 × (576/581.51) ≈ 90.81; price 89.70 ⇒ ≈ −1.2% discount.
+        // NAV 91.68 × (576/581.51) ≈ 90.81; Cathay lastPrice 89.70 ⇒ ≈ −1.2% discount.
         XCTAssertEqual(dbl(snap.report!.primary.revaluedNAV), 90.81, accuracy: 0.05)
         XCTAssertLessThan(snap.report!.premium, 0)
         XCTAssertEqual(dbl(snap.report!.premium), -0.012, accuracy: 0.004)
 
-        // All three proxies now parse (SOXX after-hours, SOXQ/SOXL regular-session).
         XCTAssertEqual(snap.statuses.first { $0.name == "Nasdaq SOXX" }?.ok, true)
-        XCTAssertEqual(snap.statuses.first { $0.name == "Nasdaq SOXQ" }?.ok, true)
         XCTAssertEqual(snap.report?.crossChecks.count, 3)
-        XCTAssertEqual(snap.statuses.first { $0.name == "Cathay NAV" }?.ok, true)
+        XCTAssertEqual(snap.statuses.first { $0.name == "Cathay 淨值/市價" }?.ok, true)
     }
 
     func testSnapshotNeverThrowsWhenEverythingFails() async {
-        let deadClient = StubHTTPClient { _ in nil }
-        let feed = DataFeed(
-            nav: CathayNAVSource(client: deadClient),
-            proxies: FallbackProxySource([NasdaqProxySource(symbol: .soxx, client: deadClient)]),
-            fx: ERAPIFXSource(client: deadClient),
-            price: TWSEMISPriceSource(client: deadClient),
-            now: { at(2026, 7, 7, 10, 0, tz: "Asia/Taipei") }
-        )
-        let snap = await feed.snapshot()
+        let snap = await feed(StubHTTPClient { _ in nil }).snapshot()
         XCTAssertNil(snap.report, "no inputs ⇒ no report, but no crash")
         XCTAssertTrue(snap.statuses.allSatisfy { !$0.ok })
     }

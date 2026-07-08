@@ -36,66 +36,53 @@ public struct FeedSnapshot: Sendable {
     }
 }
 
-/// Assembles a `FeedSnapshot` by fetching all four inputs concurrently and feeding them
-/// through `NAVCalculator`. This is the single entry point the presentation layer calls;
-/// it depends on the Core protocols, not on any concrete provider.
+/// Assembles a `FeedSnapshot` by fetching the inputs concurrently and feeding them through
+/// `NAVCalculator`. This is the single entry point the presentation layer calls.
 public struct DataFeed: Sendable {
-    private let nav: any NAVSource
+    private let cathay: CathayETFSource
     private let proxies: FallbackProxySource
     private let fx: any FXSource
-    private let price: any PriceSource
     private let clock: MarketClock
     private let now: @Sendable () -> Date
 
     public init(
-        nav: any NAVSource,
+        cathay: CathayETFSource,
         proxies: FallbackProxySource,
         fx: any FXSource,
-        price: any PriceSource,
         clock: MarketClock = MarketClock(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
-        self.nav = nav
+        self.cathay = cathay
         self.proxies = proxies
         self.fx = fx
-        self.price = price
         self.clock = clock
         self.now = now
     }
 
-    /// Convenience wiring for the live app: Cathay NAV + Nasdaq SOXX/SOXQ/SOXL + er-api FX, and
-    /// price = Cathay lastPrice (matches the issuer's official page) falling back to TWSE MIS.
+    /// Convenience wiring for the live app: Cathay ETF (NAV + market price, one call) + Nasdaq
+    /// SOXX/SOXQ/SOXL + er-api FX.
     public static func live(client: HTTPClient = URLSessionHTTPClient()) -> DataFeed {
         DataFeed(
-            nav: CathayNAVSource(client: client),
+            cathay: CathayETFSource(client: client),
             proxies: FallbackProxySource([
                 NasdaqProxySource(symbol: .soxx, client: client),
                 NasdaqProxySource(symbol: .soxq, client: client),
                 NasdaqProxySource(symbol: .soxl, client: client)
             ]),
-            fx: ERAPIFXSource(client: client),
-            price: FallbackPriceSource([
-                CathayPriceSource(client: client),
-                TWSEMISPriceSource(client: client)
-            ])
+            fx: ERAPIFXSource(client: client)
         )
     }
 
     public func snapshot() async -> FeedSnapshot {
-        async let navResult = result { try await nav.fetchNAV() }
+        async let cathayResult = result { try await cathay.fetch() }
         async let proxyResult = proxies.fetchAll()
-        async let priceResult = result { try await price.fetchPrice() }
 
-        let navValue = await navResult
+        let etf = await cathayResult
         let (quotes, proxyErrors) = await proxyResult
-        let priceValue = await priceResult
-
-        // FX needs the reference from the NAV pricing; nil until we model it, so factor is 1.
         let fxValue = await result { try await fx.fetchFX(reference: nil) }
 
         var statuses: [SourceStatus] = []
-        statuses.append(status("Cathay NAV", navValue))
-        statuses.append(status("TWSE 00830", priceValue))
+        statuses.append(status("Cathay 淨值/市價", etf))
         statuses.append(status("open.er-api FX", fxValue))
         for symbol in ProxySymbol.allCases {
             if quotes.contains(where: { $0.symbol == symbol }) {
@@ -108,15 +95,15 @@ public struct DataFeed: Sendable {
         let effectiveFX = (try? fxValue.get()) ?? FXRate(current: 1, reference: nil, timestamp: now(), source: "fallback(1.0)")
 
         var report: RevaluationReport?
-        if let nav = try? navValue.get(), let price = try? priceValue.get(), !quotes.isEmpty {
-            report = NAVCalculator.report(officialNAV: nav, proxies: quotes, fx: effectiveFX, marketPrice: price)
+        if let etf = try? etf.get(), !quotes.isEmpty {
+            report = NAVCalculator.report(officialNAV: etf.nav, proxies: quotes, fx: effectiveFX, marketPrice: etf.price)
         }
 
         return FeedSnapshot(
             phase: clock.phase(at: now()),
             report: report,
-            officialNAV: try? navValue.get(),
-            price: try? priceValue.get(),
+            officialNAV: (try? etf.get())?.nav,
+            price: (try? etf.get())?.price,
             fx: try? fxValue.get(),
             statuses: statuses,
             generatedAt: now()

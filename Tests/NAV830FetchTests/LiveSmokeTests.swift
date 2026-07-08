@@ -10,17 +10,11 @@ final class LiveSmokeTests: XCTestCase {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["NAV830_LIVE"] == "1", "live test disabled")
     }
 
-    func testLiveNAV() async throws {
-        let nav = try await CathayNAVSource().fetchNAV()
-        print("LIVE NAV: \(nav.value) @ \(nav.navDate)")
-        XCTAssertGreaterThan(nav.value, 0)
-    }
-
-    func testLivePrice() async throws {
-        // Exercise the app's actual chain: Cathay lastPrice → TWSE MIS fallback.
-        let price = try await FallbackPriceSource([CathayPriceSource(), TWSEMISPriceSource()]).fetchPrice()
-        print("LIVE 00830: \(price.price) @ \(price.timestamp) via \(price.source)")
-        XCTAssertGreaterThan(price.price, 0)
+    func testLiveCathayNavAndPrice() async throws {
+        let etf = try await CathayETFSource().fetch()
+        print("LIVE Cathay: NAV=\(etf.nav.value) price=\(etf.price.price) estimateNav=\(etf.officialEstimateNav.map { "\($0)" } ?? "nil")")
+        XCTAssertGreaterThan(etf.nav.value, 0)
+        XCTAssertGreaterThan(etf.price.price, 0)
     }
 
     func testLiveFX() async throws {

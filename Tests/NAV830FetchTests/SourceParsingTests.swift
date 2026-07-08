@@ -6,26 +6,6 @@ import NAV830Core
 /// one where a live capture was impossible), so these run offline and deterministically.
 final class SourceParsingTests: XCTestCase {
 
-    func testTWSEPrice() throws {
-        let price = try TWSEMISPriceSource.parse(fixtureData("twse_mis_00830"))
-        XCTAssertEqual(dbl(price.price), 89.70, accuracy: 0.0001)
-        XCTAssertEqual(price.source, "TWSE MIS")
-    }
-
-    func testTWSEPreOpenFallsBackToPreviousClose() throws {
-        // Pre-open: z="-" and no bid/ask ⇒ use y (昨收) as the last-known price, so the no-quote
-        // gap still produces a comparison instead of failing.
-        let price = try TWSEMISPriceSource.parse(fixtureData("twse_mis_preopen"))
-        XCTAssertEqual(dbl(price.price), 89.70, accuracy: 0.0001)
-    }
-
-    func testTWSEIntradayUsesBidAskMidWhenNoLastTrade() throws {
-        // Continuous session with z="-" but a live quote (ask 88.70 / bid 88.60) ⇒ midpoint 88.65,
-        // NOT the stale prior close 89.70.
-        let price = try TWSEMISPriceSource.parse(fixtureData("twse_mis_trading"))
-        XCTAssertEqual(dbl(price.price), 88.65, accuracy: 0.0001)
-    }
-
     func testNasdaqAfterHours() throws {
         let quote = try NasdaqProxySource.parse(fixtureData("nasdaq_soxx_afterhours"), symbol: .soxx)
         XCTAssertEqual(quote.session, .afterHours)
@@ -101,24 +81,19 @@ final class SourceParsingTests: XCTestCase {
         XCTAssertLessThan(fx.factor, 1) // TWD ~32.08 < 32.32 reference
     }
 
-    func testCathayPriceSelects00830LastPrice() throws {
-        // The price shown on Cathay's official ETF page — matches what the user sees there.
-        let price = try CathayPriceSource.parse(fixtureData("cathay_navlist"), stockCode: "00830", now: Date())
-        XCTAssertEqual(dbl(price.price), 89.70, accuracy: 0.0001)
-        XCTAssertEqual(price.source, "Cathay lastPrice")
-    }
-
-    func testCathayNAVSelects00830() throws {
-        let nav = try CathayNAVSource.parse(fixtureData("cathay_navlist"), stockCode: "00830", fetchedAt: Date())
-        // PLAN §附錄: 00830 closingNav 91.68 dated 2026/07/06.
-        XCTAssertEqual(dbl(nav.value), 91.68, accuracy: 0.0001)
+    func testCathayETFSelects00830NavAndPrice() throws {
+        // NAV + market price from the one Cathay record (matches the official ETF page).
+        let etf = try CathayETFSource.parse(fixtureData("cathay_navlist"), stockCode: "00830", now: Date())
+        XCTAssertEqual(dbl(etf.nav.value), 91.68, accuracy: 0.0001)     // closingNav (§附錄)
+        XCTAssertEqual(dbl(etf.price.price), 89.70, accuracy: 0.0001)   // lastPrice
+        XCTAssertEqual(etf.price.source, "Cathay lastPrice")
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(identifier: "Asia/Taipei")!
-        XCTAssertEqual(cal.component(.day, from: nav.navDate), 6)
+        XCTAssertEqual(cal.component(.day, from: etf.nav.navDate), 6)   // closingNavDate 2026/07/06
     }
 
-    func testCathayUnknownCodeIsUnavailable() {
-        XCTAssertThrowsError(try CathayNAVSource.parse(fixtureData("cathay_navlist"), stockCode: "99999", fetchedAt: Date())) { error in
+    func testCathayETFUnknownCodeIsUnavailable() {
+        XCTAssertThrowsError(try CathayETFSource.parse(fixtureData("cathay_navlist"), stockCode: "99999", now: Date())) { error in
             guard case SourceError.unavailable = error else { return XCTFail("expected .unavailable") }
         }
     }
