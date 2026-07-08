@@ -33,3 +33,7 @@ config.local.*
 
 # Logs
 *.log
+
+# XcodeGen-generated (regenerate: cd Apps && xcodegen generate)
+Apps/NAV830.xcodeproj/
+Apps/build/

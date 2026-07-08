@@ -1,0 +1,60 @@
+name: NAV830
+options:
+  bundleIdPrefix: com.jeff.navbar00830
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+packages:
+  NAV830:
+    path: ..
+
+settings:
+  base:
+    # Simulator builds need no signing.
+    CODE_SIGNING_ALLOWED: NO
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGN_IDENTITY: ""
+
+targets:
+  NAV830iOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: iOS
+    dependencies:
+      - package: NAV830
+        product: NAV830Core
+      - package: NAV830
+        product: NAV830Fetch
+      - package: NAV830
+        product: NAV830UI
+      - target: NAV830Widget       # embed the widget extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jeff.navbar00830.ios
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_CFBundleDisplayName: NAV830 費半
+
+  NAV830Widget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widget
+    dependencies:
+      - package: NAV830
+        product: NAV830Core
+      - package: NAV830
+        product: NAV830Fetch
+      - package: NAV830
+        product: NAV830UI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jeff.navbar00830.ios.widget
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: 00830 折溢價
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
