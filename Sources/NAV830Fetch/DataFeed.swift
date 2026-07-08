@@ -63,7 +63,8 @@ public struct DataFeed: Sendable {
         self.now = now
     }
 
-    /// Convenience wiring for the live app: Cathay NAV + Nasdaq SOXX/SOXQ/SOXL + er-api FX + TWSE price.
+    /// Convenience wiring for the live app: Cathay NAV + Nasdaq SOXX/SOXQ/SOXL + er-api FX, and
+    /// price = Cathay lastPrice (matches the issuer's official page) falling back to TWSE MIS.
     public static func live(client: HTTPClient = URLSessionHTTPClient()) -> DataFeed {
         DataFeed(
             nav: CathayNAVSource(client: client),
@@ -73,7 +74,10 @@ public struct DataFeed: Sendable {
                 NasdaqProxySource(symbol: .soxl, client: client)
             ]),
             fx: ERAPIFXSource(client: client),
-            price: TWSEMISPriceSource(client: client)
+            price: FallbackPriceSource([
+                CathayPriceSource(client: client),
+                TWSEMISPriceSource(client: client)
+            ])
         )
     }
 

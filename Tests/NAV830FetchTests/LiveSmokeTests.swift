@@ -17,8 +17,9 @@ final class LiveSmokeTests: XCTestCase {
     }
 
     func testLivePrice() async throws {
-        let price = try await TWSEMISPriceSource().fetchPrice()
-        print("LIVE 00830: \(price.price) @ \(price.timestamp)")
+        // Exercise the app's actual chain: Cathay lastPrice → TWSE MIS fallback.
+        let price = try await FallbackPriceSource([CathayPriceSource(), TWSEMISPriceSource()]).fetchPrice()
+        print("LIVE 00830: \(price.price) @ \(price.timestamp) via \(price.source)")
         XCTAssertGreaterThan(price.price, 0)
     }
 

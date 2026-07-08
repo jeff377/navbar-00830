@@ -49,7 +49,7 @@ final class MenuBarStore: ObservableObject {
     private let navSource: any NAVSource
     private let proxySource: FallbackProxySource
     private let fxSource: any FXSource
-    private let priceSource: any PriceSource
+    private let priceSource: any PriceSource   // Cathay lastPrice → TWSE MIS fallback
     private let clock = MarketClock()
     private var loopTask: Task<Void, Never>?
 
@@ -64,7 +64,10 @@ final class MenuBarStore: ObservableObject {
             NasdaqProxySource(symbol: .soxl, client: client)
         ])
         self.fxSource = ERAPIFXSource(client: client)
-        self.priceSource = TWSEMISPriceSource(client: client)
+        self.priceSource = FallbackPriceSource([
+            CathayPriceSource(client: client),
+            TWSEMISPriceSource(client: client)
+        ])
     }
 
     // MARK: - Lifecycle

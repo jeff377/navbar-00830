@@ -101,6 +101,13 @@ final class SourceParsingTests: XCTestCase {
         XCTAssertLessThan(fx.factor, 1) // TWD ~32.08 < 32.32 reference
     }
 
+    func testCathayPriceSelects00830LastPrice() throws {
+        // The price shown on Cathay's official ETF page — matches what the user sees there.
+        let price = try CathayPriceSource.parse(fixtureData("cathay_navlist"), stockCode: "00830", now: Date())
+        XCTAssertEqual(dbl(price.price), 89.70, accuracy: 0.0001)
+        XCTAssertEqual(price.source, "Cathay lastPrice")
+    }
+
     func testCathayNAVSelects00830() throws {
         let nav = try CathayNAVSource.parse(fixtureData("cathay_navlist"), stockCode: "00830", fetchedAt: Date())
         // PLAN §附錄: 00830 closingNav 91.68 dated 2026/07/06.

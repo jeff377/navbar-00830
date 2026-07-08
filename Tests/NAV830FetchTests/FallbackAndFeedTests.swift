@@ -44,6 +44,34 @@ final class FallbackProxySourceTests: XCTestCase {
     }
 }
 
+final class FallbackPriceSourceTests: XCTestCase {
+    private struct StubPrice: PriceSource {
+        let outcome: Result<MarketPrice, SourceError>
+        func fetchPrice() async throws -> MarketPrice { try outcome.get() }
+    }
+    private func price(_ p: String) -> MarketPrice {
+        MarketPrice(price: Decimal(string: p)!, timestamp: Date(timeIntervalSince1970: 0), source: "stub")
+    }
+
+    func testUsesCathayFirst() async throws {
+        let fb = FallbackPriceSource([
+            StubPrice(outcome: .success(price("88.8"))),
+            StubPrice(outcome: .success(price("88.65")))
+        ])
+        let result = try await fb.fetchPrice()
+        XCTAssertEqual(dbl(result.price), 88.8, accuracy: 0.0001)
+    }
+
+    func testFallsBackToTWSEWhenCathayFails() async throws {
+        let fb = FallbackPriceSource([
+            StubPrice(outcome: .failure(.unavailable("cathay down"))),
+            StubPrice(outcome: .success(price("88.65")))
+        ])
+        let result = try await fb.fetchPrice()
+        XCTAssertEqual(dbl(result.price), 88.65, accuracy: 0.0001)
+    }
+}
+
 /// The M2 crown: the full pipeline from raw recorded bytes to a premium/discount, wired exactly
 /// as the live app, but with the network stubbed by fixtures.
 final class DataFeedTests: XCTestCase {
