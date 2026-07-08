@@ -102,7 +102,7 @@ struct PopoverView: View {
 
     private var thresholdControl: some View {
         HStack {
-            Text("折價門檻").font(.caption)
+            Text("折溢價門檻").font(.caption)
             Slider(value: $store.thresholdPct, in: 0.5...10, step: 0.5)
             Text(String(format: "%.1f%%", store.thresholdPct)).font(.caption).monospacedDigit().frame(width: 42)
         }
