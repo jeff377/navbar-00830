@@ -56,7 +56,7 @@ struct PopoverView: View {
             row("重估即時淨值 (估計)", Fmt.money(report.primary.revaluedNAV),
                 sub: "±0.3~0.5%・\(report.primary.proxy.rawValue) \(Fmt.sessionLabel(report.primary.session)) \(Fmt.signedPct(report.primary.proxyReturn))")
             if let nav = store.snapshot?.officialNAV {
-                row("官方每日淨值", Fmt.money(nav.value), sub: "\(nav.source)")
+                row("官方預估淨值", Fmt.money(nav.value), sub: "\(nav.source)")
             }
             if let price = store.snapshot?.price {
                 row("即時市價", Fmt.money(price.price), sub: "\(price.source)・\(Fmt.taipeiClock(price.timestamp))")

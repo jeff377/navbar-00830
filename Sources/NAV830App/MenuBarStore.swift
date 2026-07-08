@@ -35,7 +35,6 @@ final class MenuBarStore: ObservableObject {
 
     // Cached inputs.
     private var nav: OfficialNAV?
-    private var fx: FXRate?
     private var quotes: [ProxyQuote] = []
     private var price: MarketPrice?
     private var statuses: [SourceStatus] = []
@@ -46,9 +45,8 @@ final class MenuBarStore: ObservableObject {
     private var lastGoodFetch: Date?
 
     // Wiring.
-    private let cathaySource: CathayETFSource   // NAV + market price, one call
+    private let cathaySource: CathayETFSource   // official NAV + market price, one call
     private let proxySource: FallbackProxySource
-    private let fxSource: any FXSource
     private let clock = MarketClock()
     private var loopTask: Task<Void, Never>?
 
@@ -62,7 +60,6 @@ final class MenuBarStore: ObservableObject {
             NasdaqProxySource(symbol: .soxq, client: client),
             NasdaqProxySource(symbol: .soxl, client: client)
         ])
-        self.fxSource = ERAPIFXSource(client: client)
     }
 
     // MARK: - Lifecycle
@@ -124,34 +121,30 @@ final class MenuBarStore: ObservableObject {
         let cathayResult = await capture { try await self.cathaySource.fetch() }
         if case .success(let etf) = cathayResult { nav = etf.nav; price = etf.price; lastGoodFetch = Date() }
 
-        // Slower-moving inputs (US proxies, FX): only when due.
+        // Slower-moving inputs (US proxies): only when due.
         var proxyResult: (quotes: [ProxyQuote], errors: [(ProxySymbol, SourceError)]) = ([], [])
         var refreshedMarketData = false
         if marketDataDue(phase) {
-            async let fxR = capture { try await self.fxSource.fetchFX(reference: nil) }
             proxyResult = await proxySource.fetchAll()
-            if case .success(let f) = await fxR { fx = f }
             if !proxyResult.quotes.isEmpty { quotes = proxyResult.quotes; lastGoodFetch = Date() }
-            fxResultCache = await fxR
             lastMarketFetch = Date()
             refreshedMarketData = true
         }
-        statuses = buildStatuses(cathay: cathayResult, fxR: fxResultCache,
+        statuses = buildStatuses(cathay: cathayResult,
                                  quotes: refreshedMarketData ? proxyResult.quotes : quotes,
                                  proxyErrors: proxyResult.errors)
         recompute()
     }
 
-    private var fxResultCache: Result<FXRate, SourceError> = .failure(.unavailable("not fetched"))
-
     private func recompute() {
         let phase = clock.phase(at: Date())
-        let effectiveFX = fx ?? FXRate(current: 1, reference: nil, timestamp: Date(), source: "fallback(1.0)")
         var report: RevaluationReport?
         if let nav, let price, !quotes.isEmpty {
-            report = NAVCalculator.report(officialNAV: nav, proxies: quotes, fx: effectiveFX, marketPrice: price)
+            // Official NAV already includes intraday FX, so no separate FX factor (factor 1).
+            let unitFX = FXRate(current: 1, reference: nil, timestamp: Date(), source: "included in official NAV")
+            report = NAVCalculator.report(officialNAV: nav, proxies: quotes, fx: unitFX, marketPrice: price)
         }
-        let snap = FeedSnapshot(phase: phase, report: report, officialNAV: nav, price: price, fx: fx, statuses: statuses, generatedAt: Date())
+        let snap = FeedSnapshot(phase: phase, report: report, officialNAV: nav, price: price, statuses: statuses, generatedAt: Date())
         publish(snap)
     }
 
@@ -181,11 +174,8 @@ final class MenuBarStore: ObservableObject {
         catch { return .failure(.network("\(error)")) }
     }
 
-    private func buildStatuses(cathay: Result<CathayETF, SourceError>, fxR: Result<FXRate, SourceError>, quotes: [ProxyQuote], proxyErrors: [(ProxySymbol, SourceError)]) -> [SourceStatus] {
-        var out: [SourceStatus] = [
-            SourceStatus(name: "Cathay 淨值/市價", ok: (try? cathay.get()) != nil),
-            SourceStatus(name: "open.er-api FX", ok: (try? fxR.get()) != nil)
-        ]
+    private func buildStatuses(cathay: Result<CathayETF, SourceError>, quotes: [ProxyQuote], proxyErrors: [(ProxySymbol, SourceError)]) -> [SourceStatus] {
+        var out = [SourceStatus(name: "Cathay 淨值/市價", ok: (try? cathay.get()) != nil)]
         for symbol in ProxySymbol.allCases {
             out.append(SourceStatus(name: "Nasdaq \(symbol.rawValue)", ok: quotes.contains { $0.symbol == symbol }))
         }
@@ -205,11 +195,8 @@ final class MenuBarStore: ObservableObject {
         // The appendix-accurate −1.0% case is covered by the Core unit tests.
         let priceFix = MarketPrice(price: Decimal(string: "87.50")!, timestamp: Date(), source: "demo")
         nav = navFix; quotes = [soxx, soxq]; price = priceFix
-        fx = FXRate(current: Decimal(string: "32.08")!, reference: nil, timestamp: Date(), source: "demo")
         statuses = [
-            SourceStatus(name: "Cathay NAV", ok: true),
-            SourceStatus(name: "TWSE 00830", ok: true),
-            SourceStatus(name: "open.er-api FX", ok: true),
+            SourceStatus(name: "Cathay 淨值/市價", ok: true),
             SourceStatus(name: "Nasdaq SOXX", ok: true),
             SourceStatus(name: "Nasdaq SOXQ", ok: true),
             SourceStatus(name: "Nasdaq SOXL", ok: false)

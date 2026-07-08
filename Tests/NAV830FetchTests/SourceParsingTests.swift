@@ -70,21 +70,11 @@ final class SourceParsingTests: XCTestCase {
         XCTAssertEqual(dbl(NAVCalculator.proxyReturn(quote)), -0.0646, accuracy: 0.0002) // matches Nasdaq −6.46%
     }
 
-    func testERAPIFX() throws {
-        let fx = try ERAPIFXSource.parse(fixtureData("erapi_usd"), reference: nil)
-        XCTAssertEqual(dbl(fx.current), 32.08, accuracy: 0.5)
-        XCTAssertEqual(fx.factor, 1, "nil reference ⇒ factor 1")
-    }
-
-    func testERAPIFXFactorWithReference() throws {
-        let fx = try ERAPIFXSource.parse(fixtureData("erapi_usd"), reference: Decimal(string: "32.32"))
-        XCTAssertLessThan(fx.factor, 1) // TWD ~32.08 < 32.32 reference
-    }
-
     func testCathayETFSelects00830NavAndPrice() throws {
         // NAV + market price from the one Cathay record (matches the official ETF page).
         let etf = try CathayETFSource.parse(fixtureData("cathay_navlist"), stockCode: "00830", now: Date())
-        XCTAssertEqual(dbl(etf.nav.value), 91.68, accuracy: 0.0001)     // closingNav (§附錄)
+        XCTAssertEqual(dbl(etf.nav.value), 91.94, accuracy: 0.0001)     // official estimateNav (預估淨值)
+        XCTAssertEqual(dbl(etf.closingNav), 91.68, accuracy: 0.0001)    // 昨收淨值 for reference
         XCTAssertEqual(dbl(etf.price.price), 89.70, accuracy: 0.0001)   // lastPrice
         XCTAssertEqual(etf.price.source, "Cathay lastPrice")
         var cal = Calendar(identifier: .gregorian)

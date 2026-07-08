@@ -51,7 +51,6 @@ final class DataFeedTests: XCTestCase {
     private func stubClient() -> StubHTTPClient {
         StubHTTPClient { url in
             let s = url.absoluteString
-            if s.contains("open.er-api.com") { return fixtureData("erapi_usd") }
             if s.contains("cwapi.cathaysite.com.tw") { return fixtureData("cathay_navlist") }
             if s.contains("api.nasdaq.com") {
                 // SOXX serves the frozen after-hours shape; SOXQ/SOXL serve the regular-session
@@ -70,7 +69,6 @@ final class DataFeedTests: XCTestCase {
                 NasdaqProxySource(symbol: .soxq, client: client),
                 NasdaqProxySource(symbol: .soxl, client: client)
             ]),
-            fx: ERAPIFXSource(client: client),
             now: { at(2026, 7, 7, 10, 0, tz: "Asia/Taipei") }
         )
     }
@@ -82,10 +80,10 @@ final class DataFeedTests: XCTestCase {
         XCTAssertNotNil(snap.report, "essential inputs present ⇒ report built")
         XCTAssertEqual(snap.report?.primary.proxy, .soxx)
         XCTAssertEqual(snap.report?.primary.session, .afterHours)
-        // NAV 91.68 × (576/581.51) ≈ 90.81; Cathay lastPrice 89.70 ⇒ ≈ −1.2% discount.
-        XCTAssertEqual(dbl(snap.report!.primary.revaluedNAV), 90.81, accuracy: 0.05)
+        // Base = official estimateNav 91.94 × (576/581.51) ≈ 91.07; lastPrice 89.70 ⇒ ≈ −1.5% discount.
+        XCTAssertEqual(dbl(snap.report!.primary.revaluedNAV), 91.07, accuracy: 0.05)
         XCTAssertLessThan(snap.report!.premium, 0)
-        XCTAssertEqual(dbl(snap.report!.premium), -0.012, accuracy: 0.004)
+        XCTAssertEqual(dbl(snap.report!.premium), -0.015, accuracy: 0.004)
 
         XCTAssertEqual(snap.statuses.first { $0.name == "Nasdaq SOXX" }?.ok, true)
         XCTAssertEqual(snap.report?.crossChecks.count, 3)

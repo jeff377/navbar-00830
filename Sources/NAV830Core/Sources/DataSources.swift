@@ -19,9 +19,3 @@ public protocol ProxySource: Sendable {
     var symbol: ProxySymbol { get }
     func fetchQuote() async throws -> ProxyQuote
 }
-
-/// USD/TWD exchange rate. `reference` is the rate the official NAV was priced at
-/// (nil ⇒ the resulting factor is 1).
-public protocol FXSource: Sendable {
-    func fetchFX(reference: Decimal?) async throws -> FXRate
-}

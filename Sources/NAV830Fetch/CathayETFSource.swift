@@ -3,18 +3,20 @@ import NAV830Core
 
 /// Everything the issuer's ETF page exposes for one fund in a single record.
 public struct CathayETF: Sendable, Equatable {
-    /// Latest official daily NAV (昨收淨值).
+    /// The official current NAV shown on the page (預估淨值 / estimateNav) — the number the user
+    /// compares against. It already reflects the regular US close *and* the issuer's intraday FX
+    /// adjustment, so the revaluation adds only the after-hours move on top and needs no separate
+    /// FX factor. Falls back to the prior-close NAV (昨收淨值) when the estimate is absent.
     public let nav: OfficialNAV
     /// Market price shown on the official page (最新市價), i.e. `lastPrice`.
     public let price: MarketPrice
-    /// The issuer's own intraday estimated NAV (預估淨值) — regular-close based, no after-hours.
-    /// Kept for reference/comparison against our post-market-adjusted revaluation.
-    public let officialEstimateNav: Decimal?
+    /// Prior-day close NAV (昨收淨值), for reference.
+    public let closingNav: Decimal
 
-    public init(nav: OfficialNAV, price: MarketPrice, officialEstimateNav: Decimal?) {
+    public init(nav: OfficialNAV, price: MarketPrice, closingNav: Decimal) {
         self.nav = nav
         self.price = price
-        self.officialEstimateNav = officialEstimateNav
+        self.closingNav = closingNav
     }
 }
 
@@ -64,13 +66,15 @@ public struct CathayETFSource: Sendable {
             throw SourceError.unavailable("Cathay ETF: \(stockCode) not found")
         }
 
-        // NAV (prefer the string forms to avoid Double→Decimal drift).
-        guard let navStr = row.closingNavString ?? row.closingNav.map({ String($0) }),
-              let navValue = Parse.decimal(navStr) else {
+        // Prior-close NAV (昨收淨值), used as the estimate's fallback and kept for reference.
+        guard let closingStr = row.closingNavString ?? row.closingNav.map({ String($0) }),
+              let closingNav = Parse.decimal(closingStr) else {
             throw SourceError.unavailable("Cathay ETF: \(stockCode) has no closingNav")
         }
+        // Official current NAV = 預估淨值 (estimateNav), falling back to 昨收淨值 when absent.
+        let estimate = (row.estimateNavString ?? row.estimateNav.map { String($0) }).flatMap(Parse.decimal).flatMap { $0 > 0 ? $0 : nil }
         let navDate = row.closingNavDate.flatMap(Parse.taipeiDate) ?? now
-        let nav = OfficialNAV(value: navValue, navDate: navDate, source: "Cathay ETF NAV", fetchedAt: now)
+        let nav = OfficialNAV(value: estimate ?? closingNav, navDate: navDate, source: "Cathay 官方預估淨值", fetchedAt: now)
 
         // Price: live lastPrice, falling back to the prior close within the same record (pre-open).
         let priceValue = (row.lastPriceString ?? row.lastPrice.map { String($0) }).flatMap(Parse.decimal).flatMap { $0 > 0 ? $0 : nil }
@@ -80,7 +84,6 @@ public struct CathayETFSource: Sendable {
         }
         let price = MarketPrice(price: priceValue, timestamp: now, source: "Cathay lastPrice")
 
-        let estimate = (row.estimateNavString ?? row.estimateNav.map { String($0) }).flatMap(Parse.decimal)
-        return CathayETF(nav: nav, price: price, officialEstimateNav: estimate)
+        return CathayETF(nav: nav, price: price, closingNav: closingNav)
     }
 }

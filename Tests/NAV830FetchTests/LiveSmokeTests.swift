@@ -12,16 +12,9 @@ final class LiveSmokeTests: XCTestCase {
 
     func testLiveCathayNavAndPrice() async throws {
         let etf = try await CathayETFSource().fetch()
-        print("LIVE Cathay: NAV=\(etf.nav.value) price=\(etf.price.price) estimateNav=\(etf.officialEstimateNav.map { "\($0)" } ?? "nil")")
+        print("LIVE Cathay: 官方預估淨值=\(etf.nav.value) 昨收淨值=\(etf.closingNav) 市價=\(etf.price.price)")
         XCTAssertGreaterThan(etf.nav.value, 0)
         XCTAssertGreaterThan(etf.price.price, 0)
-    }
-
-    func testLiveFX() async throws {
-        let fx = try await ERAPIFXSource().fetchFX(reference: nil)
-        print("LIVE USD/TWD: \(fx.current)")
-        XCTAssertGreaterThan(fx.current, 20)
-        XCTAssertLessThan(fx.current, 45)
     }
 
     func testLiveFullSnapshot() async {
