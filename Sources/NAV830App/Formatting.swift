@@ -14,6 +14,13 @@ enum Fmt {
         String(format: "%.2f", (d as NSDecimalNumber).doubleValue)
     }
 
+    /// Discount / premium direction word for the menu bar — quicker to read than a percentage.
+    static func directionWord(_ premium: Decimal) -> String {
+        if premium < 0 { return "折價" }
+        if premium > 0 { return "溢價" }
+        return "平價"
+    }
+
     /// Short clock in Asia/Taipei, e.g. 10:32:05.
     static func taipeiClock(_ date: Date) -> String {
         let f = DateFormatter()
@@ -104,12 +111,12 @@ struct LabelPresentation: Equatable {
             case .closed:                   liveness = .lastKnown
             }
         }
-        let pct = Fmt.signedPct(premium)
+        let word = Fmt.directionWord(premium)
         switch liveness {
         case .live, .lastKnown:
-            return LabelPresentation(text: "00830 \(pct)", state: LabelState.alert(premium: premium, thresholdPct: thresholdPct), liveness: liveness)
+            return LabelPresentation(text: "00830 \(word)", state: LabelState.alert(premium: premium, thresholdPct: thresholdPct), liveness: liveness)
         case .stale:
-            return LabelPresentation(text: "00830 \(pct) ⚠", state: .muted, liveness: liveness)
+            return LabelPresentation(text: "00830 \(word) ⚠", state: .muted, liveness: liveness)
         case .noData:
             return LabelPresentation(text: "00830 --", state: .muted, liveness: liveness)
         }

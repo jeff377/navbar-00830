@@ -19,7 +19,7 @@ final class LabelPresentationTests: XCTestCase {
             sinceGoodFetch: 30, priceAge: 19 * 3600
         )
         XCTAssertEqual(p.liveness, .lastKnown)
-        XCTAssertEqual(p.text, "00830 -3.6%")
+        XCTAssertEqual(p.text, "00830 折價")
         XCTAssertEqual(p.state, .discountAlert, "last-known still carries the alert colour")
     }
 
@@ -28,7 +28,7 @@ final class LabelPresentationTests: XCTestCase {
             premium: dec("0.033"), phase: .closed, thresholdPct: 3,
             sinceGoodFetch: 30, priceAge: 19 * 3600
         )
-        XCTAssertEqual(p.text, "00830 +3.3%")
+        XCTAssertEqual(p.text, "00830 溢價")
         XCTAssertEqual(p.state, .premiumAlert)
     }
 
@@ -40,7 +40,7 @@ final class LabelPresentationTests: XCTestCase {
             sinceGoodFetch: 20 * 60, priceAge: 60          // >15 min since any good fetch
         )
         XCTAssertEqual(p.liveness, .stale)
-        XCTAssertEqual(p.text, "00830 -3.6% ⚠")
+        XCTAssertEqual(p.text, "00830 折價 ⚠")
         XCTAssertEqual(p.state, .muted)
     }
 
@@ -77,6 +77,6 @@ final class LabelPresentationTests: XCTestCase {
             premium: dec("-0.01"), phase: .taiwanTrading, thresholdPct: 3, sinceGoodFetch: 5, priceAge: 300
         )
         XCTAssertEqual(p.liveness, .lastKnown)
-        XCTAssertEqual(p.text, "00830 -1.0%")
+        XCTAssertEqual(p.text, "00830 折價")
     }
 }
