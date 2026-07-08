@@ -42,15 +42,16 @@ enum Fmt {
 }
 
 /// Color semantics for the menu-bar label (PLAN §5): discount past the threshold is red,
-/// premium past it is green, inside the band is neutral, and stale/failed is grey.
+/// premium past it is green, inside the band is neutral. `muted` (grey) is for values we can't
+/// stand behind as current — nothing fetched yet, or fetches have been failing.
 enum LabelState {
     case discountAlert   // premium <= -threshold
     case premiumAlert    // premium >= +threshold
     case normal          // inside the band
-    case stale           // no fresh data
+    case muted           // no data / stale fetch
 
-    static func from(premium: Decimal?, thresholdPct: Double, isFresh: Bool) -> LabelState {
-        guard isFresh, let premium else { return .stale }
+    /// Alert colour from the premium alone (used when the value is trusted as current).
+    static func alert(premium: Decimal, thresholdPct: Double) -> LabelState {
         let pct = (premium as NSDecimalNumber).doubleValue * 100
         if pct <= -thresholdPct { return .discountAlert }
         if pct >= thresholdPct { return .premiumAlert }
@@ -62,7 +63,55 @@ enum LabelState {
         case .discountAlert: return .red
         case .premiumAlert: return .green
         case .normal: return .primary
-        case .stale: return .secondary
+        case .muted: return .secondary
+        }
+    }
+}
+
+/// How current the displayed value is (PLAN §3). Drives whether the label shows alert colours
+/// or is muted — and separates "market closed, here is the last-known comparison" from
+/// "we are not getting data".
+enum Liveness {
+    case live        // driver data is current for the phase
+    case lastKnown   // market closed: value is the last close, shown as a reference
+    case stale       // fetches failing / app was idle — not trustworthy
+    case noData      // nothing to show yet
+}
+
+/// Pure menu-bar-label decision, factored out so the exact behaviour — especially "market closed
+/// ⇒ still show the last-known comparison, not blank" — is unit-testable without a live clock.
+struct LabelPresentation: Equatable {
+    let text: String
+    let state: LabelState
+    let liveness: Liveness
+
+    /// - Parameters:
+    ///   - sinceGoodFetch: seconds since the last successful source fetch (fetch-recency, not the
+    ///     value's own timestamp — a closed market's last-close value is still current best-known).
+    ///   - priceAge: seconds since the 00830 price timestamp (only consulted during Taiwan trading).
+    static func compute(premium: Decimal?, phase: MarketPhase?, thresholdPct: Double,
+                        sinceGoodFetch: TimeInterval, priceAge: TimeInterval?) -> LabelPresentation {
+        guard let premium, let phase else {
+            return LabelPresentation(text: "00830 --", state: .muted, liveness: .noData)
+        }
+        let liveness: Liveness
+        if sinceGoodFetch > 15 * 60 {
+            liveness = .stale
+        } else {
+            switch phase {
+            case .usRegular, .usAfterHours: liveness = .live
+            case .taiwanTrading:            liveness = (priceAge ?? .infinity) <= 120 ? .live : .lastKnown
+            case .closed:                   liveness = .lastKnown
+            }
+        }
+        let pct = Fmt.signedPct(premium)
+        switch liveness {
+        case .live, .lastKnown:
+            return LabelPresentation(text: "00830 \(pct)", state: LabelState.alert(premium: premium, thresholdPct: thresholdPct), liveness: liveness)
+        case .stale:
+            return LabelPresentation(text: "00830 \(pct) ⚠", state: .muted, liveness: liveness)
+        case .noData:
+            return LabelPresentation(text: "00830 --", state: .muted, liveness: liveness)
         }
     }
 }

@@ -9,7 +9,7 @@ enum RenderProbe {
             ("00830 -3.6%", .discountAlert),
             ("00830 -1.0%", .normal),
             ("00830 +4.2%", .premiumAlert),
-            ("00830 --", .stale)
+            ("00830 --", .muted)
         ]
         let font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
         let rowH: CGFloat = 26, width: CGFloat = 160

@@ -42,6 +42,10 @@ let package = Package(
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency")
             ]
+        ),
+        .testTarget(
+            name: "NAV830AppTests",
+            dependencies: ["NAV830App", "NAV830Core"]
         )
     ]
 )

@@ -14,7 +14,7 @@ final class MenuBarStore: ObservableObject {
 
     // Published view state.
     @Published private(set) var labelText: String = "00830 …"
-    @Published private(set) var labelState: LabelState = .stale
+    @Published private(set) var labelState: LabelState = .muted
     @Published private(set) var snapshot: FeedSnapshot?
     @Published var thresholdPct: Double {
         didSet {
@@ -40,6 +40,10 @@ final class MenuBarStore: ObservableObject {
     private var price: MarketPrice?
     private var statuses: [SourceStatus] = []
     private var lastMarketFetch: Date?
+    /// When we last pulled *any* real value from a source. Note this is fetch-recency, not the
+    /// value's own timestamp — while a market is closed the values are legitimately last-close but
+    /// still the current best-known state, so we keep showing them.
+    private var lastGoodFetch: Date?
 
     // Wiring.
     private let navSource: any NAVSource
@@ -120,7 +124,7 @@ final class MenuBarStore: ObservableObject {
     private func refresh(phase: MarketPhase) async {
         // Price: every tick.
         let priceResult = await capture { try await self.priceSource.fetchPrice() }
-        if case .success(let p) = priceResult { price = p }
+        if case .success(let p) = priceResult { price = p; lastGoodFetch = Date() }
 
         // Market data: only when due.
         if marketDataDue(phase) {
@@ -130,7 +134,7 @@ final class MenuBarStore: ObservableObject {
 
             if case .success(let n) = await navR { nav = n }
             if case .success(let f) = await fxR { fx = f }
-            if !freshQuotes.isEmpty { quotes = freshQuotes }
+            if !freshQuotes.isEmpty { quotes = freshQuotes; lastGoodFetch = Date() }
             statuses = buildStatuses(navR: await navR, fxR: await fxR, priceOK: price != nil, quotes: freshQuotes, proxyErrors: proxyErrors)
             lastMarketFetch = Date()
         }
@@ -148,33 +152,22 @@ final class MenuBarStore: ObservableObject {
         publish(snap)
     }
 
+    private(set) var liveness: Liveness = .noData
+
     private func publish(_ snap: FeedSnapshot) {
         snapshot = snap
-        let fresh = isFresh(snap)
-        labelState = LabelState.from(premium: snap.report?.premium, thresholdPct: thresholdPct, isFresh: fresh)
-        if let premium = snap.report?.premium, fresh {
-            labelText = "00830 \(Fmt.signedPct(premium))"
-        } else {
-            labelText = "00830 --"
-        }
+        let now = Date()
+        let presentation = LabelPresentation.compute(
+            premium: snap.report?.premium,
+            phase: snap.report == nil ? nil : snap.phase,
+            thresholdPct: thresholdPct,
+            sinceGoodFetch: now.timeIntervalSince(lastGoodFetch ?? .distantPast),
+            priceAge: snap.price.map { now.timeIntervalSince($0.timestamp) }
+        )
+        labelText = presentation.text
+        labelState = presentation.state
+        liveness = presentation.liveness
         onPublish?()
-    }
-
-    /// A snapshot is fresh if we have a report and its driving input is recent. During the Taiwan
-    /// session the driver is the 00830 price; during US sessions the driver is the proxy, so the
-    /// estimate stays live even though the Taiwan price is a stale last-close (PLAN §3, 僅供參考).
-    private func isFresh(_ snap: FeedSnapshot) -> Bool {
-        guard snap.report != nil else { return false }
-        switch snap.phase {
-        case .taiwanTrading:
-            guard let ts = snap.price?.timestamp else { return false }
-            return Date().timeIntervalSince(ts) <= 90
-        case .usRegular, .usAfterHours:
-            return true                 // US-driven estimate is live
-        case .closed:
-            guard let ts = snap.price?.timestamp else { return false }
-            return Date().timeIntervalSince(ts) <= 12 * 3600
-        }
     }
 
     // MARK: - Helpers

@@ -35,9 +35,14 @@ struct PopoverView: View {
     // MARK: - Sections
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 6) {
             Text("00830 費城半導體").font(.headline)
             Spacer()
+            if store.liveness == .lastKnown {
+                Text("最後數值").font(.caption2).foregroundStyle(.secondary)
+            } else if store.liveness == .stale {
+                Text("⚠ 未更新").font(.caption2).foregroundStyle(.orange)
+            }
             if let phase = store.snapshot?.phase {
                 Text(Fmt.phaseLabel(phase))
                     .font(.caption).padding(.horizontal, 6).padding(.vertical, 2)
@@ -61,7 +66,7 @@ struct PopoverView: View {
                 Spacer()
                 Text(Fmt.signedPct(report.premium))
                     .font(.title3).bold().monospacedDigit()
-                    .foregroundStyle(LabelState.from(premium: report.premium, thresholdPct: store.thresholdPct, isFresh: true).color)
+                    .foregroundStyle(LabelState.alert(premium: report.premium, thresholdPct: store.thresholdPct).color)
             }
         }
     }
