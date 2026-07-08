@@ -24,7 +24,7 @@ public final class ETFStore: ObservableObject {
         }
     }
 
-    static let thresholdKey = "discountThresholdPct"
+    public static let thresholdKey = "discountThresholdPct"
 
     /// Called on the main actor after each publish so an AppKit host can refresh the status item.
     public var onPublish: (() -> Void)?

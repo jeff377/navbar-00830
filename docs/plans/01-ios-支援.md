@@ -42,9 +42,24 @@ navbar-00830/
 
 ### Phase 2 — iOS App + Widget(需 Xcode)
 
-5. **Widget**(重點):Timeline provider 呼叫 Core+Fetch,顯示折溢價/重估淨值。
-6. **App 主畫面**:SwiftUI 重用 `NAV830UI`;前景時開 timer 刷新。
-7. (選配)Live Activity / 靈動島:盤中即時折溢價。
+**程式碼骨架已寫好**(待加入 Xcode target):
+- `Apps/iOS/NAV830iOSApp.swift` + `ContentView.swift`:App 進入點 + 主畫面(重用 `DetailView`,前景/下拉刷新)。
+- `Apps/Widget/NAV830Widget.swift`:Widget bundle + `TimelineProvider`(呼叫 `DataFeed.live()`,套用與選單列相同的 `LabelPresentation`)+ 小/中尺寸畫面。
+
+**在 Xcode 建置步驟:**
+
+1. **新增 Xcode 專案**:File → New → Project → iOS App(SwiftUI),存到 `Apps/NAV830.xcodeproj`。
+2. **加本地套件**:File → Add Package Dependencies → Add Local → 選 repo 根目錄 → 加 `NAV830Core`/`NAV830Fetch`/`NAV830UI` 三個 library。
+3. **iOS App target**:把預設 `ContentView.swift`/`App.swift` 換成 `Apps/iOS/` 這兩檔;Link 三個 library。
+4. **Widget Extension**:File → New → Target → Widget Extension(部署目標設 **iOS 17**);把產生的檔案換成 `Apps/Widget/NAV830Widget.swift`;Link 三個 library。
+5. **App Group**(讓 Widget 與 App 共用門檻設定):兩個 target 都加 App Group capability(如 `group.com.jeff.navbar00830`),把 `Apps/Widget` 的 `UserDefaults.standard` 改成 `UserDefaults(suiteName:)`(見該檔 TODO)。
+6. **簽章**:Signing & Capabilities 選你的 Team;免費 Apple ID 可簽到自機(7 天),付費帳號 1 年 + TestFlight。
+7. **跑**:選 iPhone 模擬器或實機執行;長按主畫面加 Widget。
+
+### Phase 3(選配)
+
+8. Live Activity / 靈動島:盤中即時折溢價。
+9. 門檻警示:背景刷新(BGAppRefreshTask)機會性觸發 local notification,或自架 server 推 APNs。
 
 ## iOS 平台硬限制(設計前提)
 
