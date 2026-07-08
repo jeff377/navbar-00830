@@ -24,7 +24,8 @@ public struct TWSEMISPriceSource: PriceSource {
     private struct Envelope: Decodable {
         let msgArray: [Quote]
         struct Quote: Decodable {
-            let z: String?       // last traded price
+            let z: String?       // last traded price (today) — "-" before the first trade
+            let y: String?       // 昨收 (previous close) — the last-known price pre-open
             let tlong: String?   // epoch millis
         }
     }
@@ -37,8 +38,11 @@ public struct TWSEMISPriceSource: PriceSource {
         guard let quote = env.msgArray.first else {
             throw SourceError.unavailable("TWSE MIS: empty msgArray")
         }
-        guard let priceStr = quote.z, let price = Parse.decimal(priceStr) else {
-            throw SourceError.unavailable("TWSE MIS: no last price (z=\(quote.z ?? "nil"))")
+        // Before the first trade of the day (pre-open / no-quote gap) `z` is "-"; fall back to the
+        // previous close `y`, which is the last-known 00830 price the revaluation compares against.
+        let price = quote.z.flatMap(Parse.decimal) ?? quote.y.flatMap(Parse.decimal)
+        guard let price else {
+            throw SourceError.unavailable("TWSE MIS: no price (z=\(quote.z ?? "nil"), y=\(quote.y ?? "nil"))")
         }
         let timestamp = quote.tlong.flatMap(Parse.epochMillis) ?? Date()
         return MarketPrice(price: price, timestamp: timestamp, source: "TWSE MIS")

@@ -12,6 +12,13 @@ final class SourceParsingTests: XCTestCase {
         XCTAssertEqual(price.source, "TWSE MIS")
     }
 
+    func testTWSEPreOpenFallsBackToPreviousClose() throws {
+        // Pre-open: z="-" (no trade yet) ⇒ use y (昨收) as the last-known price, so the no-quote
+        // gap still produces a comparison instead of failing.
+        let price = try TWSEMISPriceSource.parse(fixtureData("twse_mis_preopen"))
+        XCTAssertEqual(dbl(price.price), 89.70, accuracy: 0.0001)
+    }
+
     func testNasdaqAfterHours() throws {
         let quote = try NasdaqProxySource.parse(fixtureData("nasdaq_soxx_afterhours"), symbol: .soxx)
         XCTAssertEqual(quote.session, .afterHours)
