@@ -8,7 +8,12 @@ macOS 選單列 App：即時顯示台股 **00830（國泰費城半導體 ETF）*
 
 ## 設計方向
 
-完整的產品／架構方向見 [`PLAN.md`](./PLAN.md)。核心原則：**計算層與呈現層徹底分離**，日後要換成網頁或加告警只換殼、核心邏輯不動。
+- 架構總覽:[`docs/architecture.md`](docs/architecture.md)
+- 原始產品方向:[`docs/plans/00-產品原始方向.md`](docs/plans/00-產品原始方向.md)
+- iOS 支援計畫:[`docs/plans/01-ios-支援.md`](docs/plans/01-ios-支援.md)
+- 架構決策紀錄:[`docs/adr/`](docs/adr/)
+
+核心原則:**計算層與呈現層徹底分離**,日後換殼(網頁 / iOS Widget / 告警)只換殼、核心邏輯不動。
 
 ## 架構
 
