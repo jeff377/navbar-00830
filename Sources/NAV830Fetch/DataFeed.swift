@@ -21,14 +21,18 @@ public struct FeedSnapshot: Sendable {
     public let report: RevaluationReport?
     public let officialNAV: OfficialNAV?
     public let price: MarketPrice?
+    /// Raw proxy quotes — available even when `report` is nil (e.g. official NAV not settled yet),
+    /// so the UI can still show the US after-hours move without a full revaluation.
+    public let quotes: [ProxyQuote]
     public let statuses: [SourceStatus]
     public let generatedAt: Date
 
-    public init(phase: MarketPhase, report: RevaluationReport?, officialNAV: OfficialNAV?, price: MarketPrice?, statuses: [SourceStatus], generatedAt: Date) {
+    public init(phase: MarketPhase, report: RevaluationReport?, officialNAV: OfficialNAV?, price: MarketPrice?, quotes: [ProxyQuote], statuses: [SourceStatus], generatedAt: Date) {
         self.phase = phase
         self.report = report
         self.officialNAV = officialNAV
         self.price = price
+        self.quotes = quotes
         self.statuses = statuses
         self.generatedAt = generatedAt
     }
@@ -106,6 +110,7 @@ public struct DataFeed: Sendable {
             report: report,
             officialNAV: (try? etf.get())?.nav,
             price: try? priceValue.get(),
+            quotes: quotes,
             statuses: statuses,
             generatedAt: now()
         )

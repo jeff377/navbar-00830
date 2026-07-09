@@ -155,7 +155,7 @@ public final class ETFStore: ObservableObject {
             let unitFX = FXRate(current: 1, reference: nil, timestamp: Date(), source: "included in official NAV")
             report = NAVCalculator.report(officialNAV: nav, proxies: quotes, fx: unitFX, marketPrice: price)
         }
-        let snap = FeedSnapshot(phase: phase, report: report, officialNAV: nav, price: price, statuses: statuses, generatedAt: Date())
+        let snap = FeedSnapshot(phase: phase, report: report, officialNAV: nav, price: price, quotes: quotes, statuses: statuses, generatedAt: Date())
         publish(snap)
     }
 

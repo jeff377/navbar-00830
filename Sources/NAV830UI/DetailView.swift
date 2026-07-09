@@ -17,15 +17,11 @@ public struct DetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             header
             Divider()
-            if let report = store.snapshot?.report {
-                figures(report)
+            figures
+            let quotes = store.snapshot?.quotes ?? []
+            if !quotes.isEmpty {
                 Divider()
-                crossCheck(report)
-            } else {
-                Text(noDataMessage)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                crossCheck(quotes)
             }
             Divider()
             sources
@@ -60,35 +56,52 @@ public struct DetailView: View {
         }
     }
 
-    private func figures(_ report: RevaluationReport) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            row("重估即時淨值 (估計)", Fmt.money(report.primary.revaluedNAV),
-                sub: "±0.3~0.5%・\(report.primary.proxy.rawValue) \(Fmt.sessionLabel(report.primary.session)) \(Fmt.signedPct(report.primary.proxyReturn))")
-            if let nav = store.snapshot?.officialNAV {
-                row("官方預估淨值", Fmt.money(nav.value), sub: "\(nav.source)")
+    /// Per-field graceful degradation: each figure shows if its input is available. When the
+    /// official NAV is missing (e.g. 未結出 before the open) the market price and after-hours move
+    /// still show; only the NAV-derived figures read "—".
+    private var figures: some View {
+        let snap = store.snapshot
+        let report = snap?.report
+        return VStack(alignment: .leading, spacing: 6) {
+            if let report {
+                row("重估即時淨值 (估計)", Fmt.money(report.primary.revaluedNAV),
+                    sub: "±0.3~0.5%・\(report.primary.proxy.rawValue) \(Fmt.sessionLabel(report.primary.session)) \(Fmt.signedPct(report.primary.proxyReturn))")
+            } else {
+                row("重估即時淨值 (估計)", "—", sub: "需官方淨值")
             }
-            if let price = store.snapshot?.price {
+            row("官方預估淨值", snap?.officialNAV.map { Fmt.money($0.value) } ?? "未結出",
+                sub: snap?.officialNAV.map { $0.source } ?? "開盤前尚未結出")
+            if let price = snap?.price {
                 row("即時市價", Fmt.money(price.price), sub: "\(price.source)・\(Fmt.taipeiClock(price.timestamp))")
+            } else {
+                row("即時市價", "—", sub: "TWSE")
             }
             HStack {
                 Text("折溢價").font(.callout).bold()
                 Spacer()
-                Text(Fmt.signedPct(report.premium))
-                    .font(.title3).bold().monospacedDigit()
-                    .foregroundStyle(LabelState.alert(premium: report.premium, thresholdPct: store.thresholdPct).color)
+                if let report {
+                    Text(Fmt.signedPct(report.premium))
+                        .font(.title3).bold().monospacedDigit()
+                        .foregroundStyle(LabelState.alert(premium: report.premium, thresholdPct: store.thresholdPct).color)
+                } else {
+                    Text("—").font(.title3).bold().foregroundStyle(.secondary)
+                }
             }
         }
     }
 
-    private func crossCheck(_ report: RevaluationReport) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("代理交叉驗證").font(.caption).foregroundStyle(.secondary)
-            ForEach(report.crossChecks, id: \.proxy) { rv in
+    /// After-hours move per proxy — available from the raw quotes even without a NAV; the iNAV
+    /// column fills in only when the revaluation could be computed.
+    private func crossCheck(_ quotes: [ProxyQuote]) -> some View {
+        let inavByProxy = Dictionary(uniqueKeysWithValues: (store.snapshot?.report?.crossChecks ?? []).map { ($0.proxy, $0.revaluedNAV) })
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("美股代理盤後").font(.caption).foregroundStyle(.secondary)
+            ForEach(quotes, id: \.symbol) { q in
                 HStack {
-                    Text(rv.proxy.rawValue).monospaced().frame(width: 50, alignment: .leading)
-                    Text(Fmt.signedPct(rv.proxyReturn)).foregroundStyle(.secondary)
+                    Text(q.symbol.rawValue).monospaced().frame(width: 50, alignment: .leading)
+                    Text(Fmt.signedPct(NAVCalculator.proxyReturn(q))).foregroundStyle(.secondary)
                     Spacer()
-                    Text("iNAV \(Fmt.money(rv.revaluedNAV))").monospacedDigit()
+                    Text(inavByProxy[q.symbol].map { "iNAV \(Fmt.money($0))" } ?? "iNAV —").monospacedDigit()
                 }.font(.caption)
             }
         }
@@ -124,14 +137,6 @@ public struct DetailView: View {
             #if os(macOS)
             Button("結束") { NSApplication.shared.terminate(nil) }.controlSize(.small)
             #endif
-        }
-    }
-
-    private var noDataMessage: String {
-        switch store.snapshot?.phase {
-        case .closed: return "目前美股/台股皆休市,顯示最後已知數值;開盤後自動更新。"
-        case .some: return "資料尚未就緒或來源暫時失效,請稍候或按「立即刷新」。"
-        case .none: return "初始化中…"
         }
     }
 
