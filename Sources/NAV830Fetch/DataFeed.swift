@@ -42,27 +42,31 @@ let noFXAdjustment = FXRate(current: 1, reference: nil, timestamp: Date(timeInte
 /// `NAVCalculator`. This is the single entry point the presentation layer calls.
 public struct DataFeed: Sendable {
     private let cathay: CathayETFSource
+    private let price: any PriceSource
     private let proxies: FallbackProxySource
     private let clock: MarketClock
     private let now: @Sendable () -> Date
 
     public init(
         cathay: CathayETFSource,
+        price: any PriceSource,
         proxies: FallbackProxySource,
         clock: MarketClock = MarketClock(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.cathay = cathay
+        self.price = price
         self.proxies = proxies
         self.clock = clock
         self.now = now
     }
 
-    /// Convenience wiring for the live app: Cathay ETF (official NAV + market price, one call) +
+    /// Convenience wiring for the live app: Cathay official NAV + TWSE MIS market price +
     /// Nasdaq SOXX/SOXQ/SOXL.
     public static func live(client: HTTPClient = URLSessionHTTPClient()) -> DataFeed {
         DataFeed(
             cathay: CathayETFSource(client: client),
+            price: TWSEMISPriceSource(client: client),
             proxies: FallbackProxySource([
                 NasdaqProxySource(symbol: .soxx, client: client),
                 NasdaqProxySource(symbol: .soxq, client: client),
@@ -73,12 +77,17 @@ public struct DataFeed: Sendable {
 
     public func snapshot() async -> FeedSnapshot {
         async let cathayResult = result { try await cathay.fetch() }
+        async let priceResult = result { try await price.fetchPrice() }
         async let proxyResult = proxies.fetchAll()
 
         let etf = await cathayResult
+        let priceValue = await priceResult
         let (quotes, proxyErrors) = await proxyResult
 
-        var statuses: [SourceStatus] = [status("Cathay 淨值/市價", etf)]
+        var statuses: [SourceStatus] = [
+            status("Cathay 官方淨值", etf),
+            status("TWSE 市價", priceValue)
+        ]
         for symbol in ProxySymbol.allCases {
             if quotes.contains(where: { $0.symbol == symbol }) {
                 statuses.append(SourceStatus(name: "Nasdaq \(symbol.rawValue)", ok: true))
@@ -88,15 +97,15 @@ public struct DataFeed: Sendable {
         }
 
         var report: RevaluationReport?
-        if let etf = try? etf.get(), !quotes.isEmpty {
-            report = NAVCalculator.report(officialNAV: etf.nav, proxies: quotes, fx: noFXAdjustment, marketPrice: etf.price)
+        if let etf = try? etf.get(), let price = try? priceValue.get(), !quotes.isEmpty {
+            report = NAVCalculator.report(officialNAV: etf.nav, proxies: quotes, fx: noFXAdjustment, marketPrice: price)
         }
 
         return FeedSnapshot(
             phase: clock.phase(at: now()),
             report: report,
             officialNAV: (try? etf.get())?.nav,
-            price: (try? etf.get())?.price,
+            price: try? priceValue.get(),
             statuses: statuses,
             generatedAt: now()
         )

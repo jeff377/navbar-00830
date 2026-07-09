@@ -1,0 +1,10 @@
+{
+  "_comment": "Real TWSE MIS shape during continuous trading — z (last trade) is '-' but best ask a=88.70 / best bid b=88.60 give a midpoint of 88.65; y is the prior close 89.70.",
+  "msgArray": [
+    { "c": "00830", "n": "國泰費城半導體", "z": "-", "y": "89.7000",
+      "a": "88.7000_88.7500_88.8000_88.8500_88.9000_",
+      "b": "88.6000_88.5500_88.5000_88.4500_88.4000_",
+      "t": "09:47:29", "tlong": "1783475249000" }
+  ],
+  "rtcode": "0000"
+}

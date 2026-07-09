@@ -48,7 +48,8 @@ public final class ETFStore: ObservableObject {
     private var lastGoodFetch: Date?
 
     // Wiring.
-    private let cathaySource: CathayETFSource   // official NAV + market price, one call
+    private let cathaySource: CathayETFSource       // official NAV (預估淨值 / 昨收)
+    private let priceSource: any PriceSource        // 00830 市價 (TWSE MIS)
     private let proxySource: FallbackProxySource
     private let clock = MarketClock()
     private var loopTask: Task<Void, Never>?
@@ -60,6 +61,7 @@ public final class ETFStore: ObservableObject {
         self.launchAtLogin = LoginItem.isEnabled
         #endif
         self.cathaySource = CathayETFSource(client: client)
+        self.priceSource = TWSEMISPriceSource(client: client)
         self.proxySource = FallbackProxySource([
             NasdaqProxySource(symbol: .soxx, client: client),
             NasdaqProxySource(symbol: .soxq, client: client),
@@ -122,9 +124,13 @@ public final class ETFStore: ObservableObject {
     public func refreshNow() { Task { await refresh(phase: clock.phase(at: Date())) } }
 
     private func refresh(phase: MarketPhase) async {
-        // Cathay ETF: NAV + market price in one call, every tick (the price moves during TW hours).
-        let cathayResult = await capture { try await self.cathaySource.fetch() }
-        if case .success(let etf) = cathayResult { nav = etf.nav; price = etf.price; lastGoodFetch = Date() }
+        // Official NAV (Cathay) + market price (TWSE MIS): every tick (the price moves in TW hours).
+        async let cathayR = capture { try await self.cathaySource.fetch() }
+        async let priceR = capture { try await self.priceSource.fetchPrice() }
+        let cathayResult = await cathayR
+        let priceResult = await priceR
+        if case .success(let etf) = cathayResult { nav = etf.nav; lastGoodFetch = Date() }
+        if case .success(let p) = priceResult { price = p; lastGoodFetch = Date() }
 
         // Slower-moving inputs (US proxies): only when due.
         var proxyResult: (quotes: [ProxyQuote], errors: [(ProxySymbol, SourceError)]) = ([], [])
@@ -135,7 +141,7 @@ public final class ETFStore: ObservableObject {
             lastMarketFetch = Date()
             refreshedMarketData = true
         }
-        statuses = buildStatuses(cathay: cathayResult,
+        statuses = buildStatuses(cathay: cathayResult, priceOK: (try? priceResult.get()) != nil,
                                  quotes: refreshedMarketData ? proxyResult.quotes : quotes,
                                  proxyErrors: proxyResult.errors)
         recompute()
@@ -179,8 +185,11 @@ public final class ETFStore: ObservableObject {
         catch { return .failure(.network("\(error)")) }
     }
 
-    private func buildStatuses(cathay: Result<CathayETF, SourceError>, quotes: [ProxyQuote], proxyErrors: [(ProxySymbol, SourceError)]) -> [SourceStatus] {
-        var out = [SourceStatus(name: "Cathay 淨值/市價", ok: (try? cathay.get()) != nil)]
+    private func buildStatuses(cathay: Result<CathayETF, SourceError>, priceOK: Bool, quotes: [ProxyQuote], proxyErrors: [(ProxySymbol, SourceError)]) -> [SourceStatus] {
+        var out = [
+            SourceStatus(name: "Cathay 官方淨值", ok: (try? cathay.get()) != nil),
+            SourceStatus(name: "TWSE 市價", ok: priceOK)
+        ]
         for symbol in ProxySymbol.allCases {
             out.append(SourceStatus(name: "Nasdaq \(symbol.rawValue)", ok: quotes.contains { $0.symbol == symbol }))
         }

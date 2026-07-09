@@ -1,0 +1,8 @@
+{
+  "_comment": "TWSE MIS snapshot with a valid last-trade price z=89.70 (after close).",
+  "msgArray": [
+    { "c": "00830", "n": "國泰費城半導體", "z": "89.7000", "y": "92.4000",
+      "o": "91.6000", "h": "91.7000", "l": "89.5000", "tlong": "1783405800000" }
+  ],
+  "rtcode": "0000"
+}

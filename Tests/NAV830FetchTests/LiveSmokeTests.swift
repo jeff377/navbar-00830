@@ -10,11 +10,16 @@ final class LiveSmokeTests: XCTestCase {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["NAV830_LIVE"] == "1", "live test disabled")
     }
 
-    func testLiveCathayNavAndPrice() async throws {
+    func testLiveCathayNAV() async throws {
         let etf = try await CathayETFSource().fetch()
-        print("LIVE Cathay: 官方預估淨值=\(etf.nav.value) 昨收淨值=\(etf.closingNav) 市價=\(etf.price.price)")
+        print("LIVE Cathay: 官方預估淨值=\(etf.nav.value) 昨收淨值=\(etf.closingNav)")
         XCTAssertGreaterThan(etf.nav.value, 0)
-        XCTAssertGreaterThan(etf.price.price, 0)
+    }
+
+    func testLiveTWSEPrice() async throws {
+        let price = try await TWSEMISPriceSource().fetchPrice()
+        print("LIVE TWSE 00830: \(price.price) @ \(price.timestamp)")
+        XCTAssertGreaterThan(price.price, 0)
     }
 
     func testLiveFullSnapshot() async {

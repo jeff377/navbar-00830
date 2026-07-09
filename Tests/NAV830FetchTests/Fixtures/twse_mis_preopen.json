@@ -1,0 +1,7 @@
+{
+  "_comment": "SYNTHETIC: pre-open / no-quote gap — z='-' (no trade yet), no bid/ask, y (昨收) carries the last close 89.70.",
+  "msgArray": [
+    { "c": "00830", "n": "國泰費城半導體", "z": "-", "y": "89.7000", "o": "-", "h": "-", "l": "-", "tlong": "1783483200000" }
+  ],
+  "rtcode": "0000"
+}

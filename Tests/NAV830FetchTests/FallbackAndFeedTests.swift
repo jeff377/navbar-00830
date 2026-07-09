@@ -51,6 +51,7 @@ final class DataFeedTests: XCTestCase {
     private func stubClient() -> StubHTTPClient {
         StubHTTPClient { url in
             let s = url.absoluteString
+            if s.contains("mis.twse.com.tw") { return fixtureData("twse_mis_00830") }
             if s.contains("cwapi.cathaysite.com.tw") { return fixtureData("cathay_navlist") }
             if s.contains("api.nasdaq.com") {
                 // SOXX serves the frozen after-hours shape; SOXQ/SOXL serve the regular-session
@@ -64,6 +65,7 @@ final class DataFeedTests: XCTestCase {
     private func feed(_ client: StubHTTPClient) -> DataFeed {
         DataFeed(
             cathay: CathayETFSource(client: client),
+            price: TWSEMISPriceSource(client: client),
             proxies: FallbackProxySource([
                 NasdaqProxySource(symbol: .soxx, client: client),
                 NasdaqProxySource(symbol: .soxq, client: client),
@@ -80,14 +82,15 @@ final class DataFeedTests: XCTestCase {
         XCTAssertNotNil(snap.report, "essential inputs present ⇒ report built")
         XCTAssertEqual(snap.report?.primary.proxy, .soxx)
         XCTAssertEqual(snap.report?.primary.session, .afterHours)
-        // Base = official estimateNav 91.94 × (576/581.51) ≈ 91.07; lastPrice 89.70 ⇒ ≈ −1.5% discount.
+        // Base = official estimateNav 91.94 × (576/581.51) ≈ 91.07; TWSE price 89.70 ⇒ ≈ −1.5% discount.
         XCTAssertEqual(dbl(snap.report!.primary.revaluedNAV), 91.07, accuracy: 0.05)
         XCTAssertLessThan(snap.report!.premium, 0)
         XCTAssertEqual(dbl(snap.report!.premium), -0.015, accuracy: 0.004)
 
         XCTAssertEqual(snap.statuses.first { $0.name == "Nasdaq SOXX" }?.ok, true)
         XCTAssertEqual(snap.report?.crossChecks.count, 3)
-        XCTAssertEqual(snap.statuses.first { $0.name == "Cathay 淨值/市價" }?.ok, true)
+        XCTAssertEqual(snap.statuses.first { $0.name == "Cathay 官方淨值" }?.ok, true)
+        XCTAssertEqual(snap.statuses.first { $0.name == "TWSE 市價" }?.ok, true)
     }
 
     func testSnapshotNeverThrowsWhenEverythingFails() async {

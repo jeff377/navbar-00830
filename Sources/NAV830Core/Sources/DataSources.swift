@@ -19,3 +19,8 @@ public protocol ProxySource: Sendable {
     var symbol: ProxySymbol { get }
     func fetchQuote() async throws -> ProxyQuote
 }
+
+/// Live market price of 00830 on the Taiwan exchange.
+public protocol PriceSource: Sendable {
+    func fetchPrice() async throws -> MarketPrice
+}
