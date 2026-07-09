@@ -77,13 +77,15 @@ public struct DetailView: View {
                 row("即時市價", "—", sub: "TWSE")
             }
             HStack {
-                Text("折溢價").font(.callout).bold()
-                Spacer()
                 if let report {
-                    Text(Fmt.signedPct(report.premium))
-                        .font(.title3).bold().monospacedDigit()
-                        .foregroundStyle(LabelState.alert(premium: report.premium, thresholdPct: store.thresholdPct).color)
+                    // The direction word doubles as the label (iOS has no menu bar to show it).
+                    let color = LabelState.alert(premium: report.premium, thresholdPct: store.thresholdPct).color
+                    Text(Fmt.directionWord(report.premium)).font(.callout).bold().foregroundStyle(color)
+                    Spacer()
+                    Text(Fmt.signedPct(report.premium)).font(.title3).bold().monospacedDigit().foregroundStyle(color)
                 } else {
+                    Text("折溢價").font(.callout).bold()
+                    Spacer()
                     Text("—").font(.title3).bold().foregroundStyle(.secondary)
                 }
             }
