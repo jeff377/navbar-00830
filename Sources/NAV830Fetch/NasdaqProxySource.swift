@@ -83,18 +83,25 @@ public struct NasdaqProxySource: ProxySource {
         // So `baseClose` must be that completed close, and `latestPrice` whatever came after it —
         // otherwise we re-apply a move the official NAV already contains (double-counting).
         let at = primary.lastTradeTimestamp.flatMap(Parse.nasdaqTimestamp) ?? Date()
+        let status = (payload.marketStatus ?? "").lowercased()
 
-        // Extended-hours present → freshest price; the completed close is `primary`.
+        // WARNING: Nasdaq swaps the roles of primaryData/secondaryData between sessions. While the
+        // regular session is Open *or* in Pre-Market, `primaryData` is a LIVE tick (not a close)
+        // and `secondaryData` — if present — holds the *previous regular close* ("Closed at …
+        // 4:00 PM ET"), the reverse of the after-hours layout. Reading secondaryData as "the newer
+        // price" in Pre-Market inverts the sign (a −4.6% pre-market read as +4.9%). So the
+        // live-tick cases must be decided first, and their base recovered from netChange —
+        // which equals the previous close in both.
+        let isLiveTick = status == "open" || status.contains("pre-market") || status.contains("premarket")
+        if isLiveTick, let chgStr = primary.netChange, let change = Parse.decimal(chgStr) {
+            return ProxyQuote(symbol: symbol, baseClose: regular - change, latestPrice: regular,
+                              latestAt: at, session: status == "open" ? .regular : .preMarket)
+        }
+
+        // Post-market: `primary` is the completed regular close, `secondaryData` the newer print.
         if let extStr = payload.secondaryData?.lastSalePrice, let ext = Parse.decimal(extStr) {
             let extAt = payload.secondaryData?.lastTradeTimestamp.flatMap(Parse.nasdaqTimestamp) ?? at
             return ProxyQuote(symbol: symbol, baseClose: regular, latestPrice: ext, latestAt: extAt, session: .afterHours)
-        }
-
-        // Regular session live → `primary` is a live tick, not a close. The completed close is the
-        // previous one, recovered as lastSalePrice − netChange; the intraday move sits on top of it.
-        if payload.marketStatus?.caseInsensitiveCompare("Open") == .orderedSame,
-           let chgStr = primary.netChange, let change = Parse.decimal(chgStr) {
-            return ProxyQuote(symbol: symbol, baseClose: regular - change, latestPrice: regular, latestAt: at, session: .regular)
         }
 
         // Closed, no extended data → frozen at the last completed regular close, which the official

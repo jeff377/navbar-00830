@@ -21,7 +21,9 @@ public enum ProxySymbol: String, Sendable, CaseIterable {
 public enum ProxySession: String, Sendable {
     /// Live regular-session price (US market open).
     case regular
-    /// Extended-hours price (post- or pre-market).
+    /// Live pre-market price (before the regular open).
+    case preMarket
+    /// Post-market (after-hours) price.
     case afterHours
     /// Frozen last print — regular session closed and no extended-hours data available.
     case frozen

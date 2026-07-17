@@ -35,6 +35,20 @@ final class SourceParsingTests: XCTestCase {
         XCTAssertEqual(dbl(NAVCalculator.proxyReturn(quote)), -0.0095, accuracy: 0.0002)
     }
 
+    func testNasdaqPreMarketUsesLiveTickVsPriorClose() throws {
+        // REGRESSION: in Pre-Market Nasdaq swaps the roles — primaryData is the live pre-market
+        // tick (506.06, −4.61%) and secondaryData holds the *previous regular close* (530.50,
+        // "Closed at … 4:00 PM ET"). Reading secondaryData as the newer price inverted the sign
+        // (−4.6% shown as +4.9%). base must come from netChange, not secondaryData.
+        let quote = try NasdaqProxySource.parse(fixtureData("nasdaq_soxx_premarket"), symbol: .soxx)
+        XCTAssertEqual(quote.session, .preMarket)
+        XCTAssertEqual(dbl(quote.baseClose), 530.50, accuracy: 0.0001)   // prior regular close
+        XCTAssertEqual(dbl(quote.latestPrice), 506.06, accuracy: 0.0001) // live pre-market tick
+        let ret = dbl(NAVCalculator.proxyReturn(quote))
+        XCTAssertEqual(ret, -0.0461, accuracy: 0.0002)                   // matches Nasdaq −4.61%
+        XCTAssertLessThan(ret, 0, "pre-market is down — must not read as a gain")
+    }
+
     func testNasdaqFrozenAddsNoMove() throws {
         // US closed, no after-hours: base == latest == the last regular close, so the proxy adds
         // zero move — the official NAV already reflects this close (no double-counting).

@@ -42,6 +42,7 @@ public enum Fmt {
     public static func sessionLabel(_ session: ProxySession) -> String {
         switch session {
         case .regular: return "美股即時"
+        case .preMarket: return "美股盤前"
         case .afterHours: return "美股盤後"
         case .frozen: return "凍結收盤"
         }
