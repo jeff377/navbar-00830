@@ -11,11 +11,10 @@ packages:
 
 settings:
   base:
-    # Automatic signing: the simulator needs no team, a real device does.
-    # For device / TestFlight builds set your 10-char Team ID here (or pick the Team once in
-    # Xcode → Signing & Capabilities, which writes it for you):
-    #   DEVELOPMENT_TEAM: ABCDE12345
+    # Automatic signing. The simulator needs no team; a real device needs the team below plus an
+    # "Apple Development" certificate (Xcode creates it after signing in under Settings → Accounts).
     CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: 5M7B43XSN6
 
 targets:
   NAV830iOS:
