@@ -1,0 +1,11 @@
+{
+  "_comment": "Real TWSE MIS shape seen mid-session: z (最近成交價) and pz (揭示價) are both '-' for this snapshot even though the session has traded (o/h/l populated). Must NOT synthesise a midpoint or regress to 昨收 — fail so the caller keeps its cached live price.",
+  "msgArray": [
+    { "c": "00830", "n": "國泰費城半導體", "z": "-", "pz": "-", "tv": "-",
+      "o": "89.0000", "h": "89.3500", "l": "88.3500", "y": "89.7000",
+      "a": "88.7000_88.7500_88.8000_88.8500_88.9000_",
+      "b": "88.6000_88.5500_88.5000_88.4500_88.4000_",
+      "t": "09:47:29", "tlong": "1783475249000" }
+  ],
+  "rtcode": "0000"
+}

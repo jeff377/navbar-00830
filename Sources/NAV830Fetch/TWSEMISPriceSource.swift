@@ -25,9 +25,9 @@ public struct TWSEMISPriceSource: PriceSource {
     private struct Envelope: Decodable {
         let msgArray: [Quote]
         struct Quote: Decodable {
-            let z: String?       // last traded price — often "-" between matches / intraday
-            let a: String?       // ask ladder, "_"-separated (best ask first)
-            let b: String?       // bid ladder, "_"-separated (best bid first)
+            let z: String?       // 最近成交價 — "-" when no match in this snapshot
+            let pz: String?      // 揭示價 — the disclosed price, a real tick-aligned quote
+            let o: String?       // 開盤價 — "-" until the session has traded
             let y: String?       // 昨收 (previous close)
             let tlong: String?   // epoch millis
         }
@@ -41,24 +41,24 @@ public struct TWSEMISPriceSource: PriceSource {
         guard let quote = env.msgArray.first else {
             throw SourceError.unavailable("TWSE MIS: empty msgArray")
         }
-        // Price priority: last trade `z`; otherwise the live best bid/ask midpoint (MIS often
-        // returns z="-" mid-session while the quote is live); otherwise the previous close `y`.
-        let price = Parse.decimal(quote.z ?? "")
-            ?? Self.bidAskMid(ask: quote.a, bid: quote.b)
-            ?? Parse.decimal(quote.y ?? "")
-        guard let price else {
-            throw SourceError.unavailable("TWSE MIS: no price (z=\(quote.z ?? "nil"), y=\(quote.y ?? "nil"))")
-        }
         let timestamp = quote.tlong.flatMap(Parse.epochMillis) ?? Date()
-        return MarketPrice(price: price, timestamp: timestamp, source: "TWSE MIS")
-    }
 
-    /// Midpoint of the best bid and best ask, if both are present.
-    private static func bidAskMid(ask: String?, bid: String?) -> Decimal? {
-        func best(_ ladder: String?) -> Decimal? {
-            ladder?.split(separator: "_").first.flatMap { Parse.decimal(String($0)) }
+        // Only ever report a REAL, tick-aligned price. 00830 trades in 0.05 steps, so a computed
+        // bid/ask midpoint (e.g. 83.125) is a price that cannot exist — never synthesise one.
+        // `z` is the last match; `pz` (揭示價) is the disclosed price and is present in many
+        // snapshots where `z` reads "-".
+        if let price = Parse.decimal(quote.z ?? "") ?? Parse.decimal(quote.pz ?? "") {
+            return MarketPrice(price: price, timestamp: timestamp, source: "TWSE MIS")
         }
-        guard let a = best(ask), let b = best(bid) else { return nil }
-        return (a + b) / 2
+
+        // No trade price in this snapshot. Before the session has traded (no open price) the
+        // previous close is the correct last-known value. Once trading has started, a missing
+        // print is transient — fail so the caller keeps its cached live price instead of
+        // regressing the display to yesterday's close.
+        let hasTradedToday = Parse.decimal(quote.o ?? "") != nil
+        if !hasTradedToday, let prevClose = Parse.decimal(quote.y ?? "") {
+            return MarketPrice(price: prevClose, timestamp: timestamp, source: "TWSE 昨收")
+        }
+        throw SourceError.unavailable("TWSE MIS: no trade price this snapshot (z=\(quote.z ?? "nil"), pz=\(quote.pz ?? "nil"))")
     }
 }

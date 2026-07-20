@@ -14,16 +14,30 @@ final class SourceParsingTests: XCTestCase {
         XCTAssertEqual(price.source, "TWSE MIS")
     }
 
-    func testTWSEIntradayUsesBidAskMidWhenNoLastTrade() throws {
-        // z="-" mid-session but a live quote (ask 88.70 / bid 88.60) ⇒ midpoint 88.65.
-        let price = try TWSEMISPriceSource.parse(fixtureData("twse_mis_trading"))
-        XCTAssertEqual(dbl(price.price), 88.65, accuracy: 0.0001)
+    func testTWSEUsesDisclosedPriceWhenNoLastTrade() throws {
+        // REGRESSION: z="-" but pz (揭示價) = 83.10 — a real, tick-aligned price. Previously we
+        // synthesised a bid/ask midpoint (83.125 → "83.12"), which cannot exist: 00830 trades in
+        // 0.05 steps. Must report pz, never a midpoint.
+        let price = try TWSEMISPriceSource.parse(fixtureData("twse_mis_pz"))
+        XCTAssertEqual(dbl(price.price), 83.10, accuracy: 0.0001)
+        // Guard the invariant directly: the price must sit on a 0.05 tick.
+        let ticks = (price.price / Decimal(string: "0.05")!) as NSDecimalNumber
+        XCTAssertEqual(ticks.doubleValue, ticks.doubleValue.rounded(), accuracy: 1e-6, "price must be tick-aligned")
     }
 
     func testTWSEPreOpenFallsBackToPreviousClose() throws {
-        // Pre-open: z="-" and no bid/ask ⇒ use y (昨收) as the last-known price.
+        // Pre-open: z/pz absent and the session has not traded (o="-") ⇒ 昨收 is the last-known.
         let price = try TWSEMISPriceSource.parse(fixtureData("twse_mis_preopen"))
         XCTAssertEqual(dbl(price.price), 89.70, accuracy: 0.0001)
+        XCTAssertEqual(price.source, "TWSE 昨收")
+    }
+
+    func testTWSEMidSessionGapThrowsSoCallerKeepsCache() {
+        // Mid-session snapshot with no trade price (z/pz both "-") but the session HAS traded.
+        // Must fail rather than invent a midpoint or regress to 昨收 — the store keeps its cache.
+        XCTAssertThrowsError(try TWSEMISPriceSource.parse(fixtureData("twse_mis_trading_gap"))) { error in
+            guard case SourceError.unavailable = error else { return XCTFail("expected .unavailable, got \(error)") }
+        }
     }
 
     func testNasdaqAfterHours() throws {
