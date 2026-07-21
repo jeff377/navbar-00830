@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:navbar-00830}",
+            "name": "Debug NAV830App",
+            "target": "NAV830App",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug NAV830App"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:navbar-00830}",
+            "name": "Release NAV830App",
+            "target": "NAV830App",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release NAV830App"
+        }
+    ]
+}
