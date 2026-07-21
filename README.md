@@ -14,18 +14,9 @@ macOS 選單列 App：即時顯示台股 **00830（國泰費城半導體 ETF）*
 |---|---|
 | <img src="docs/images/macos-popover.png" width="380" alt="macOS 選單列常駐圖示與 popover 明細"> | <img src="docs/images/ios-app.png" width="250" alt="iOS App 淨值/市價/折溢價明細"> |
 
-## 設計方向
-
-- 架構總覽:[`docs/architecture.md`](docs/architecture.md)
-- 原始產品方向:[`docs/plans/00-產品原始方向.md`](docs/plans/00-產品原始方向.md)
-- iOS 支援計畫:[`docs/plans/01-ios-支援.md`](docs/plans/01-ios-支援.md)
-- 架構決策紀錄:[`docs/adr/`](docs/adr/)
-
-核心原則:**計算層與呈現層徹底分離**,日後換殼(網頁 / iOS Widget / 告警)只換殼、核心邏輯不動。
-
 ## 架構
 
-Swift Package，三層模組（`NAV830Core` 對外零依賴，結構性保證分離）：
+**核心原則：計算層與呈現層徹底分離** — 日後換殼（網頁 / iOS Widget / 告警）只換殼、核心邏輯不動。Swift Package 三層模組，`NAV830Core` 對外零依賴，結構性保證分離：
 
 | 模組 | 職責 |
 |---|---|
@@ -53,6 +44,13 @@ scripts/publish.sh --install    # 並複製到 /Applications
 - 首次執行若被 Gatekeeper 擋：在「系統設定 → 隱私權與安全性」按「仍要打開」，或 `xattr -dr com.apple.quarantine /Applications/NAV830.app`。
 - **開機自動啟動**：popover 內勾選即可（用 `SMAppService`，需 app 在 `/Applications` 等穩定位置）。
 - **瀏海 MacBook 注意**：選單列右側太滿時，macOS 會把新項目丟進瀏海死區而看不到——保留一個空位，或搭配選單列管理工具（如 Ice）。
+
+## 文件
+
+- 架構總覽:[`docs/architecture.md`](docs/architecture.md)
+- 原始產品方向:[`docs/plans/00-產品原始方向.md`](docs/plans/00-產品原始方向.md)
+- iOS 支援計畫:[`docs/plans/01-ios-支援.md`](docs/plans/01-ios-支援.md)
+- 架構決策紀錄:[`docs/adr/`](docs/adr/)
 
 ## 免責
 
