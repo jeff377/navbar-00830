@@ -133,17 +133,12 @@ public final class ETFStore: ObservableObject {
         if case .success(let p) = priceResult { price = p; lastGoodFetch = Date() }
 
         // Slower-moving inputs (US proxies): only when due.
-        var proxyResult: (quotes: [ProxyQuote], errors: [(ProxySymbol, SourceError)]) = ([], [])
-        var refreshedMarketData = false
         if marketDataDue(phase) {
-            proxyResult = await proxySource.fetchAll()
+            let proxyResult = await proxySource.fetchAll()
             if !proxyResult.quotes.isEmpty { quotes = proxyResult.quotes; lastGoodFetch = Date() }
             lastMarketFetch = Date()
-            refreshedMarketData = true
         }
-        statuses = buildStatuses(cathay: cathayResult, priceOK: (try? priceResult.get()) != nil,
-                                 quotes: refreshedMarketData ? proxyResult.quotes : quotes,
-                                 proxyErrors: proxyResult.errors)
+        statuses = buildStatuses()
         recompute()
     }
 
@@ -185,10 +180,15 @@ public final class ETFStore: ObservableObject {
         catch { return .failure(.network("\(error)")) }
     }
 
-    private func buildStatuses(cathay: Result<CathayETF, SourceError>, priceOK: Bool, quotes: [ProxyQuote], proxyErrors: [(ProxySymbol, SourceError)]) -> [SourceStatus] {
+    /// Source dots reflect whether we currently *hold* each input — matching the value shown in the
+    /// corresponding figure row — not whether this single tick's fetch succeeded. The TWSE MIS
+    /// snapshot legitimately carries no trade print between matches (z/pz both "-"), so a per-tick
+    /// view flickers the dot red while the displayed (cached) price is perfectly good. Global
+    /// staleness is surfaced separately by the header's liveness badge.
+    private func buildStatuses() -> [SourceStatus] {
         var out = [
-            SourceStatus(name: "Cathay 官方淨值", ok: (try? cathay.get()) != nil),
-            SourceStatus(name: "TWSE 市價", ok: priceOK)
+            SourceStatus(name: "Cathay 官方淨值", ok: nav != nil),
+            SourceStatus(name: "TWSE 市價", ok: price != nil)
         ]
         for symbol in ProxySymbol.allCases {
             out.append(SourceStatus(name: "Nasdaq \(symbol.rawValue)", ok: quotes.contains { $0.symbol == symbol }))
