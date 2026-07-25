@@ -38,7 +38,13 @@ public final class ETFStore: ObservableObject {
 
     // Cached inputs.
     private var nav: OfficialNAV?
+    /// Proxy quotes exactly as fetched. Kept separate from `quotes` because the base close they
+    /// arrive with is only valid while Taiwan is trading; `quotes` holds the re-anchored form.
+    private var rawQuotes: [ProxyQuote] = []
     private var quotes: [ProxyQuote] = []
+    /// Inputs the current `quotes` were re-anchored from, so the (networked) re-anchor runs when
+    /// something actually changed rather than on every 5-minute tick.
+    private var anchoredFrom: (raw: [ProxyQuote], anchor: Date?)?
     private var price: MarketPrice?
     private var statuses: [SourceStatus] = []
     private var lastMarketFetch: Date?
@@ -121,7 +127,10 @@ public final class ETFStore: ObservableObject {
 
     // MARK: - Refresh
 
-    public func refreshNow() { Task { await refresh(phase: clock.phase(at: Date())) } }
+    public func refreshNow() { Task { await refreshOnce() } }
+
+    /// One full refresh, awaitable. `refreshNow()` fires and forgets, which a test cannot join.
+    public func refreshOnce() async { await refresh(phase: clock.phase(at: Date())) }
 
     private func refresh(phase: MarketPhase) async {
         // Official NAV (Cathay) + market price (TWSE MIS): every tick (the price moves in TW hours).
@@ -135,11 +144,24 @@ public final class ETFStore: ObservableObject {
         // Slower-moving inputs (US proxies): only when due.
         if marketDataDue(phase) {
             let proxyResult = await proxySource.fetchAll()
-            if !proxyResult.quotes.isEmpty { quotes = proxyResult.quotes; lastGoodFetch = Date() }
+            if !proxyResult.quotes.isEmpty { rawQuotes = proxyResult.quotes; lastGoodFetch = Date() }
             lastMarketFetch = Date()
         }
+        await reanchorIfNeeded()
         statuses = buildStatuses()
         recompute()
+    }
+
+    /// WARNING: the proxies date their base close as the newest completed US close, which is one
+    /// session too new from the US close until Taiwan next opens (04:00–09:00 Taipei on weekdays,
+    /// and all weekend). Skipping this drops that session's move entirely — a −4.4% Friday shows
+    /// as a flat NAV all weekend. Runs on both the fetch path and after the NAV rolls forward,
+    /// since either side moving invalidates the pairing.
+    private func reanchorIfNeeded() async {
+        let anchor = nav?.usCloseDate
+        if let done = anchoredFrom, done.raw == rawQuotes, done.anchor == anchor { return }
+        quotes = await proxySource.reanchor(rawQuotes, toNAVClose: anchor)
+        anchoredFrom = (rawQuotes, anchor)
     }
 
     private func recompute() {

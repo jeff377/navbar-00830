@@ -1,6 +1,7 @@
 import XCTest
 @testable import NAV830Fetch
 import NAV830Core
+import NAV830UI
 
 /// Hits the real endpoints. Skipped unless NAV830_LIVE=1, so CI and normal `swift test` stay
 /// offline and deterministic. Run with:  NAV830_LIVE=1 swift test --filter LiveSmokeTests
@@ -38,5 +39,20 @@ final class LiveSmokeTests: XCTestCase {
         // Proxy after-hours may legitimately be unavailable outside the relevant window, so we
         // only assert the feed produced a snapshot without crashing.
         XCTAssertFalse(snap.statuses.isEmpty)
+    }
+
+    /// The shipped app runs ETFStore, not DataFeed. Checking only DataFeed once let a wrong NAV
+    /// reach the menu bar with every test green, so the store gets its own live check — and this
+    /// is the one whose numbers should match what the user sees.
+    @MainActor
+    func testLiveStoreMatchesWhatTheMenuBarShows() async {
+        let store = ETFStore()
+        await store.refreshOnce()
+        print("LIVE 選單列: \(store.labelText)  [\(store.labelState)]")
+        if let r = store.snapshot?.report {
+            print("LIVE popover: 重估=\(Fmt.money(r.primary.revaluedNAV)) 官方=\(store.snapshot?.officialNAV.map { Fmt.money($0.value) } ?? "-") 市價=\(Fmt.money(r.marketPrice.price)) \(Fmt.directionWord(r.premium)) \(Fmt.signedPct(r.premium))")
+            print("LIVE 基準: \(r.primary.proxy.rawValue) \(Fmt.baseLabel(r.primary)) \(Fmt.signedPct(r.primary.proxyReturn))")
+        }
+        XCTAssertNotNil(store.snapshot)
     }
 }

@@ -30,8 +30,11 @@ let package = Package(
             swiftSettings: [.enableUpcomingFeature("StrictConcurrency")]
         ),
         .testTarget(
+            // Also covers ETFStore's assembly path: it duplicates DataFeed's wiring, so it needs
+            // its own coverage against the same recorded fixtures (a fix applied only to DataFeed
+            // once shipped with the app still showing the old number).
             name: "NAV830FetchTests",
-            dependencies: ["NAV830Fetch", "NAV830Core"],
+            dependencies: ["NAV830Fetch", "NAV830Core", "NAV830UI"],
             resources: [.copy("Fixtures")]
         ),
         .target(
