@@ -41,7 +41,19 @@ public struct NasdaqProxySource: ProxySource {
               isPlausible(post, base: quote.baseClose) else {
             return quote
         }
-        return ProxyQuote(symbol: symbol, baseClose: quote.baseClose, latestPrice: post, latestAt: quote.latestAt, session: .afterHours)
+        return ProxyQuote(symbol: symbol, baseClose: quote.baseClose, baseCloseDate: quote.baseCloseDate,
+                          latestPrice: post, latestAt: quote.latestAt, session: .afterHours)
+    }
+
+    /// The last regular close on or before `date`, from Nasdaq's historical table. A window of
+    /// two weeks back is requested so the lookup still lands on a close through a long holiday.
+    public func regularClose(onOrBefore date: Date) async throws -> DatedClose {
+        let from = Parse.easternDay(date, offsetByDays: -14)
+        let url = URL(string: "https://api.nasdaq.com/api/quote/\(symbol.rawValue)/historical?assetclass=etf&fromdate=\(Self.isoDay(from))&todate=\(Self.isoDay(date))&limit=30")!
+        guard let match = Self.parseHistorical(try await client.get(url, headers: headers), onOrBefore: date) else {
+            throw SourceError.unavailable("Nasdaq \(symbol.rawValue): no regular close on or before \(Self.isoDay(date))")
+        }
+        return match
     }
 
     /// Reject a post-market price that is grossly off the regular close — a sign the two endpoints
@@ -79,9 +91,11 @@ public struct NasdaqProxySource: ProxySource {
             throw SourceError.unavailable("Nasdaq \(symbol.rawValue): no primary price (symbol not listed?)")
         }
 
-        // The official NAV always already reflects the most recent *completed* regular close.
-        // So `baseClose` must be that completed close, and `latestPrice` whatever came after it —
-        // otherwise we re-apply a move the official NAV already contains (double-counting).
+        // `baseClose` is this source's best guess at the close the official NAV was struck
+        // against, and `latestPrice` whatever came after it. The guess is only ever "the newest
+        // completed close" — correct while Taiwan is trading, but one session too new once the
+        // US has closed again. `baseCloseDate` is therefore reported alongside it so the feed
+        // can re-anchor against `OfficialNAV.usCloseDate` (see `DataFeed`).
         let at = primary.lastTradeTimestamp.flatMap(Parse.nasdaqTimestamp) ?? Date()
         let status = (payload.marketStatus ?? "").lowercased()
 
@@ -94,20 +108,30 @@ public struct NasdaqProxySource: ProxySource {
         // which equals the previous close in both.
         let isLiveTick = status == "open" || status.contains("pre-market") || status.contains("premarket")
         if isLiveTick, let chgStr = primary.netChange, let change = Parse.decimal(chgStr) {
-            return ProxyQuote(symbol: symbol, baseClose: regular - change, latestPrice: regular,
-                              latestAt: at, session: status == "open" ? .regular : .preMarket)
+            // The base here is the *previous* close; only Pre-Market dates it for us (secondaryData
+            // reads "Closed at <date>"). Left nil during the regular session — where the previous
+            // close is what the official NAV used anyway, so there is nothing to re-anchor.
+            let baseDate = status == "open"
+                ? nil
+                : payload.secondaryData?.lastTradeTimestamp.flatMap(Parse.nasdaqTimestamp).map(Parse.easternDay)
+            return ProxyQuote(symbol: symbol, baseClose: regular - change, baseCloseDate: baseDate,
+                              latestPrice: regular, latestAt: at,
+                              session: status == "open" ? .regular : .preMarket)
         }
 
         // Post-market: `primary` is the completed regular close, `secondaryData` the newer print.
         if let extStr = payload.secondaryData?.lastSalePrice, let ext = Parse.decimal(extStr) {
             let extAt = payload.secondaryData?.lastTradeTimestamp.flatMap(Parse.nasdaqTimestamp) ?? at
-            return ProxyQuote(symbol: symbol, baseClose: regular, latestPrice: ext, latestAt: extAt, session: .afterHours)
+            return ProxyQuote(symbol: symbol, baseClose: regular, baseCloseDate: Parse.easternDay(at),
+                              latestPrice: ext, latestAt: extAt, session: .afterHours)
         }
 
-        // Closed, no extended data → frozen at the last completed regular close, which the official
-        // NAV already reflects. base == latest ⇒ zero added move ⇒ revalued NAV == official NAV.
-        // fetchQuote may then top this up with the retained post-market close.
-        return ProxyQuote(symbol: symbol, baseClose: regular, latestPrice: regular, latestAt: at, session: .frozen)
+        // Closed, no extended data → frozen at the last completed regular close. That close is in
+        // the official NAV only while Taiwan is trading; afterwards the feed re-anchors this quote
+        // to the older close the NAV actually used. fetchQuote may first top it up with the
+        // retained post-market close.
+        return ProxyQuote(symbol: symbol, baseClose: regular, baseCloseDate: Parse.easternDay(at),
+                          latestPrice: regular, latestAt: at, session: .frozen)
     }
 
     // MARK: - Extended-trading (retained post-market close)
@@ -131,5 +155,44 @@ public struct NasdaqProxySource: ProxySource {
             return nil
         }
         return Parse.decimal(String(firstToken))
+    }
+
+    // MARK: - Historical closes
+
+    private struct HistoricalEnvelope: Decodable {
+        let data: HistData?
+        struct HistData: Decodable {
+            let tradesTable: TradesTable?
+            struct TradesTable: Decodable {
+                let rows: [Row]?
+                struct Row: Decodable {
+                    let date: String?
+                    let close: String?
+                }
+            }
+        }
+    }
+
+    /// The newest historical close whose trading day is on or before `date`. Rows arrive
+    /// newest-first, but they are compared explicitly rather than trusting that order.
+    static func parseHistorical(_ data: Data, onOrBefore date: Date) -> DatedClose? {
+        guard let env = try? JSONDecoder().decode(HistoricalEnvelope.self, from: data),
+              let rows = env.data?.tradesTable?.rows else { return nil }
+        let cutoff = Parse.easternDay(date)
+        return rows
+            .compactMap { row -> DatedClose? in
+                guard let dayStr = row.date, let day = Parse.nasdaqHistoricalDate(dayStr),
+                      let closeStr = row.close, let close = Parse.decimal(closeStr) else { return nil }
+                return day <= cutoff ? DatedClose(close: close, date: day) : nil
+            }
+            .max { $0.date < $1.date }
+    }
+
+    private static func isoDay(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "America/New_York")
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: date)
     }
 }

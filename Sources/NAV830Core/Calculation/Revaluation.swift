@@ -5,17 +5,22 @@ public struct Revaluation: Sendable, Equatable {
     public let proxy: ProxySymbol
     /// De-leveraged proxy return — the US move since the base close (e.g. -0.0095 for -0.95%).
     public let proxyReturn: Decimal
-    /// Which US session the move came from (regular / after-hours / frozen).
+    /// Which US session the *latest price* came from (regular / after-hours / frozen). NOTE: it
+    /// does not describe the whole move — once the quote is re-anchored to an older close, the
+    /// move spans every session since. Use `baseCloseDate` to say what it is measured from.
     public let session: ProxySession
+    /// ET trading date the move is measured from — the close the official NAV was struck against.
+    public let baseCloseDate: Date?
     /// FX adjustment factor that was applied.
     public let fxFactor: Decimal
     /// Re-estimated intraday NAV in TWD.
     public let revaluedNAV: Decimal
 
-    public init(proxy: ProxySymbol, proxyReturn: Decimal, session: ProxySession, fxFactor: Decimal, revaluedNAV: Decimal) {
+    public init(proxy: ProxySymbol, proxyReturn: Decimal, session: ProxySession, baseCloseDate: Date? = nil, fxFactor: Decimal, revaluedNAV: Decimal) {
         self.proxy = proxy
         self.proxyReturn = proxyReturn
         self.session = session
+        self.baseCloseDate = baseCloseDate
         self.fxFactor = fxFactor
         self.revaluedNAV = revaluedNAV
     }

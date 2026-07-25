@@ -31,7 +31,8 @@ public enum NAVCalculator {
         let ret = proxyReturn(proxy)
         let factor = fx.factor
         let nav = revaluedNAV(officialNAV: officialNAV.value, proxyReturn: ret, fxFactor: factor)
-        return Revaluation(proxy: proxy.symbol, proxyReturn: ret, session: proxy.session, fxFactor: factor, revaluedNAV: nav)
+        return Revaluation(proxy: proxy.symbol, proxyReturn: ret, session: proxy.session,
+                           baseCloseDate: proxy.baseCloseDate, fxFactor: factor, revaluedNAV: nav)
     }
 
     /// Build the full report: SOXX as the primary value, the others as cross-checks.

@@ -33,5 +33,18 @@ struct StubHTTPClient: HTTPClient {
 struct StubProxySource: ProxySource {
     let symbol: ProxySymbol
     let outcome: Result<ProxyQuote, SourceError>
+    /// Canned historical close for re-anchoring tests; absent ⇒ the lookup fails.
+    var history: DatedClose?
+
     func fetchQuote() async throws -> ProxyQuote { try outcome.get() }
+
+    func regularClose(onOrBefore date: Date) async throws -> DatedClose {
+        guard let history else { throw SourceError.unavailable("no history stub") }
+        return history
+    }
+}
+
+/// ET midnight of a trading day, the granularity `baseCloseDate` / `usCloseDate` compare at.
+func etDay(_ y: Int, _ mo: Int, _ d: Int) -> Date {
+    at(y, mo, d, 0, 0, tz: "America/New_York")
 }

@@ -37,8 +37,12 @@ public enum ProxySession: String, Sendable {
 ///   · Taiwan trading  → latest = frozen extended price, base = the frozen regular close
 public struct ProxyQuote: Sendable, Equatable {
     public let symbol: ProxySymbol
-    /// The last completed US regular-session close that the official NAV incorporates.
+    /// The US regular-session close the move is measured from — which must be the close the
+    /// official NAV was struck against (`OfficialNAV.usCloseDate`), not merely the newest one.
     public let baseClose: Decimal
+    /// ET trading date of `baseClose`, as an ET-midnight instant. Nil when the source cannot
+    /// date it (a live regular-session tick, where the base is recovered from `netChange`).
+    public let baseCloseDate: Date?
     /// The most recent US price available.
     public let latestPrice: Decimal
     /// Timestamp of the latest price.
@@ -46,11 +50,27 @@ public struct ProxyQuote: Sendable, Equatable {
     /// Which session `latestPrice` came from.
     public let session: ProxySession
 
-    public init(symbol: ProxySymbol, baseClose: Decimal, latestPrice: Decimal, latestAt: Date, session: ProxySession) {
+    public init(symbol: ProxySymbol, baseClose: Decimal, baseCloseDate: Date? = nil, latestPrice: Decimal, latestAt: Date, session: ProxySession) {
         self.symbol = symbol
         self.baseClose = baseClose
+        self.baseCloseDate = baseCloseDate
         self.latestPrice = latestPrice
         self.latestAt = latestAt
         self.session = session
+    }
+
+    /// Same latest price, measured from an older close — the one the official NAV actually used.
+    /// The resulting move then spans every session in between, which is exactly the gap the
+    /// official NAV has yet to absorb.
+    public func reanchored(to base: DatedClose) -> ProxyQuote {
+        ProxyQuote(symbol: symbol, baseClose: base.close, baseCloseDate: base.date,
+                   latestPrice: latestPrice, latestAt: latestAt, session: session)
+    }
+
+    /// Whether this quote's base is newer than what `navAnchor` (the official NAV's valuation
+    /// close) incorporates — i.e. the move between the two is missing from the revaluation.
+    public func needsReanchoring(to navAnchor: Date?) -> Bool {
+        guard let navAnchor, let baseCloseDate else { return false }
+        return baseCloseDate > navAnchor
     }
 }

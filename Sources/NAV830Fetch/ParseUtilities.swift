@@ -25,13 +25,24 @@ enum Parse {
     }
 
     /// Nasdaq timestamp like "Jul 6, 2026 7:59 PM ET" (Eastern Time).
+    ///
+    /// Once a session has closed Nasdaq drops the clock component and sends the bare date
+    /// ("Jul 7, 2026"), and in Pre-Market it prefixes the previous close with "Closed at ".
+    /// All three forms are accepted; the date-only form resolves to ET midnight.
     static func nasdaqTimestamp(_ raw: String) -> Date? {
-        let trimmed = raw.replacingOccurrences(of: " ET", with: "").trimmingCharacters(in: .whitespaces)
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(identifier: "America/New_York")
-        f.dateFormat = "MMM d, yyyy h:mm a"
-        return f.date(from: trimmed)
+        let trimmed = raw
+            .replacingOccurrences(of: "Closed at ", with: "")
+            .replacingOccurrences(of: " ET", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        for format in ["MMM d, yyyy h:mm a", "MMM d, yyyy"] {
+            if let date = easternFormatter(format).date(from: trimmed) { return date }
+        }
+        return nil
+    }
+
+    /// Nasdaq historical-row date like "07/24/2026" → ET midnight of that trading day.
+    static func nasdaqHistoricalDate(_ raw: String) -> Date? {
+        easternFormatter("MM/dd/yyyy").date(from: raw.trimmingCharacters(in: .whitespaces))
     }
 
     /// Cathay date like "2026/07/06", interpreted at Taipei midnight.
@@ -41,5 +52,35 @@ enum Parse {
         f.timeZone = TimeZone(identifier: "Asia/Taipei")
         f.dateFormat = "yyyy/MM/dd"
         return f.date(from: raw.trimmingCharacters(in: .whitespaces))
+    }
+
+    /// Cathay date like "2026/07/06" read as an ET *trading-day label* rather than a Taipei
+    /// instant. Used for `OfficialNAV.usCloseDate`, which is compared against Nasdaq's ET
+    /// close dates — parsing it at Taipei midnight would land on the previous ET day
+    /// (2026/07/23 00:00 +08 is 2026/07/22 12:00 ET) and shift every comparison by one day.
+    static func taipeiDateAsEasternDay(_ raw: String) -> Date? {
+        easternFormatter("yyyy/MM/dd").date(from: raw.trimmingCharacters(in: .whitespaces))
+    }
+
+    /// Floor an instant to ET midnight, so trading days compare by day rather than by clock.
+    static func easternDay(_ date: Date) -> Date {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "America/New_York")!
+        return cal.startOfDay(for: date)
+    }
+
+    /// Shift an ET-midnight day by whole days, staying on ET midnights across DST.
+    static func easternDay(_ date: Date, offsetByDays days: Int) -> Date {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "America/New_York")!
+        return cal.date(byAdding: .day, value: days, to: cal.startOfDay(for: date)) ?? date
+    }
+
+    private static func easternFormatter(_ format: String) -> DateFormatter {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "America/New_York")
+        f.dateFormat = format
+        return f
     }
 }

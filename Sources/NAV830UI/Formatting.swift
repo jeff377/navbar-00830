@@ -47,6 +47,20 @@ public enum Fmt {
         case .frozen: return "凍結收盤"
         }
     }
+
+    /// What the proxy move is measured from, e.g. "自 7/23 收盤".
+    ///
+    /// The session name alone is not enough: after a US close the official NAV has not yet
+    /// absorbed that session, so the move runs from an older close and covers more than the
+    /// session its latest price came from. Naming the base date keeps that visible.
+    public static func baseLabel(_ revaluation: Revaluation) -> String {
+        guard let base = revaluation.baseCloseDate else { return sessionLabel(revaluation.session) }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "America/New_York")
+        f.dateFormat = "M/d"
+        return "自 \(f.string(from: base)) 收盤"
+    }
 }
 
 /// Color semantics (PLAN §5): discount past the threshold is red, premium past it is green,

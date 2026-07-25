@@ -30,6 +30,27 @@ public struct FallbackProxySource: Sendable {
         return (quotes, errors)
     }
 
+    /// Re-anchor every quote whose base close is newer than the one the official NAV was struck
+    /// against, by looking that close up in the proxy's history.
+    ///
+    /// A quote that cannot be re-anchored is returned untouched rather than dropped: an estimate
+    /// missing one session's move is still better than no estimate, and the shell shows the base
+    /// date so the discrepancy is visible.
+    public func reanchor(_ quotes: [ProxyQuote], toNAVClose anchor: Date?) async -> [ProxyQuote] {
+        guard anchor != nil else { return quotes }
+        var result: [ProxyQuote] = []
+        for quote in quotes {
+            guard quote.needsReanchoring(to: anchor),
+                  let source = sources.first(where: { $0.symbol == quote.symbol }),
+                  let base = try? await source.regularClose(onOrBefore: anchor!) else {
+                result.append(quote)
+                continue
+            }
+            result.append(quote.reanchored(to: base))
+        }
+        return result
+    }
+
     /// The first successful quote in preference order, or `.allFailed` if none succeed.
     public func fetchPreferred() async throws -> ProxyQuote {
         var errors: [SourceError] = []

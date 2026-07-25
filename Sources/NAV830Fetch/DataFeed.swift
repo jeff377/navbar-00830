@@ -86,7 +86,14 @@ public struct DataFeed: Sendable {
 
         let etf = await cathayResult
         let priceValue = await priceResult
-        let (quotes, proxyErrors) = await proxyResult
+        let (rawQuotes, proxyErrors) = await proxyResult
+
+        // WARNING: the proxy sources date their own base close as "the newest completed US close",
+        // which is one session too new from the moment the US closes until Taiwan next opens
+        // (04:00–09:00 Taipei on weekdays, and all weekend). Left alone, that session's move is
+        // silently dropped — a −4.4% Friday would show as a flat NAV all weekend. Re-anchor to the
+        // close the official NAV was actually struck against before doing any math on the quotes.
+        let quotes = await proxies.reanchor(rawQuotes, toNAVClose: (try? etf.get())?.nav.usCloseDate)
 
         var statuses: [SourceStatus] = [
             status("Cathay 官方淨值", etf),

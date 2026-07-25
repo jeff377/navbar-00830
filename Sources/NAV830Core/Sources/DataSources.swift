@@ -14,10 +14,27 @@ public enum SourceError: Error, Sendable, Equatable {
     case allFailed([SourceError])
 }
 
+/// One historical regular-session close, with the ET trading day it belongs to.
+public struct DatedClose: Sendable, Equatable {
+    public let close: Decimal
+    /// ET trading date, as an ET-midnight instant.
+    public let date: Date
+
+    public init(close: Decimal, date: Date) {
+        self.close = close
+        self.date = date
+    }
+}
+
 /// A proxy ETF quote (regular close + after-hours) for one symbol.
 public protocol ProxySource: Sendable {
     var symbol: ProxySymbol { get }
     func fetchQuote() async throws -> ProxyQuote
+
+    /// The last regular close on or before `date` (ET). Needed to re-anchor a quote to the
+    /// close the official NAV was struck against, which may be several sessions back after a
+    /// weekend or a Taiwan holiday.
+    func regularClose(onOrBefore date: Date) async throws -> DatedClose
 }
 
 /// Live market price of 00830 on the Taiwan exchange.

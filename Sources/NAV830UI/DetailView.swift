@@ -65,7 +65,7 @@ public struct DetailView: View {
         return VStack(alignment: .leading, spacing: 6) {
             if let report {
                 row("重估即時淨值 (估計)", Fmt.money(report.primary.revaluedNAV),
-                    sub: "±0.3~0.5%・\(report.primary.proxy.rawValue) \(Fmt.sessionLabel(report.primary.session)) \(Fmt.signedPct(report.primary.proxyReturn))")
+                    sub: "±0.3~0.5%・\(report.primary.proxy.rawValue) \(Fmt.baseLabel(report.primary)) \(Fmt.signedPct(report.primary.proxyReturn))")
             } else {
                 row("重估即時淨值 (估計)", "—", sub: "需官方淨值")
             }

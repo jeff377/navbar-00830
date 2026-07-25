@@ -65,7 +65,8 @@ final class SourceParsingTests: XCTestCase {
 
     func testNasdaqFrozenAddsNoMove() throws {
         // US closed, no after-hours: base == latest == the last regular close, so the proxy adds
-        // zero move — the official NAV already reflects this close (no double-counting).
+        // zero move. Correct only while that close is the one the official NAV was struck against
+        // — which the feed enforces by re-anchoring (see testFrozenBaseIsDatedForReanchoring).
         let quote = try NasdaqProxySource.parse(fixtureData("nasdaq_soxx_frozen"), symbol: .soxx)
         XCTAssertEqual(quote.session, .frozen)
         XCTAssertEqual(dbl(quote.baseClose), 551.69, accuracy: 0.0001)
@@ -75,6 +76,37 @@ final class SourceParsingTests: XCTestCase {
         let nav = OfficialNAV(value: dec("87.73"), navDate: Date(), source: "t", fetchedAt: Date())
         let r = NAVCalculator.revalue(officialNAV: nav, proxy: quote, fx: FXRate(current: 1, reference: nil, timestamp: Date(), source: "t"))
         XCTAssertEqual(dbl(r.revaluedNAV), 87.73, accuracy: 0.001)
+    }
+
+    func testFrozenBaseIsDatedForReanchoring() throws {
+        // The frozen payload dates its close as "Jul 7, 2026" — no clock component. It must still
+        // parse, because that date is what decides whether the official NAV already contains this
+        // close. Left unparsed, every frozen quote silently claims to be anchored to today.
+        let quote = try NasdaqProxySource.parse(fixtureData("nasdaq_soxx_frozen"), symbol: .soxx)
+        XCTAssertEqual(quote.baseCloseDate, etDay(2026, 7, 7))
+    }
+
+    func testAfterHoursBaseIsDatedToTheRegularClose() throws {
+        let quote = try NasdaqProxySource.parse(fixtureData("nasdaq_soxx_afterhours"), symbol: .soxx)
+        XCTAssertEqual(quote.baseCloseDate, etDay(2026, 7, 6))
+    }
+
+    func testHistoricalPicksLastCloseOnOrBeforeCutoff() throws {
+        // 07/24 (527.01) and 07/23 (551.24) are both present; asking for 07/23 must not grab the
+        // newer row. This is the lookup that recovers the close the official NAV actually used.
+        let data = fixtureData("nasdaq_soxx_historical")
+        let onFriday = try XCTUnwrap(NasdaqProxySource.parseHistorical(data, onOrBefore: etDay(2026, 7, 24)))
+        XCTAssertEqual(dbl(onFriday.close), 527.01, accuracy: 0.0001)
+        let onThursday = try XCTUnwrap(NasdaqProxySource.parseHistorical(data, onOrBefore: etDay(2026, 7, 23)))
+        XCTAssertEqual(dbl(onThursday.close), 551.24, accuracy: 0.0001)
+        XCTAssertEqual(onThursday.date, etDay(2026, 7, 23))
+    }
+
+    func testHistoricalSkipsBackOverNonTradingDays() throws {
+        // 07/25–07/26 is a weekend: asking for Sunday must fall back to Friday's close, which is
+        // how a Taiwan holiday or a US holiday is absorbed without a market calendar.
+        let match = try XCTUnwrap(NasdaqProxySource.parseHistorical(fixtureData("nasdaq_soxx_historical"), onOrBefore: etDay(2026, 7, 26)))
+        XCTAssertEqual(match.date, etDay(2026, 7, 24))
     }
 
     func testExtendedPostParse() throws {
@@ -126,6 +158,26 @@ final class SourceParsingTests: XCTestCase {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(identifier: "Asia/Taipei")!
         XCTAssertEqual(cal.component(.day, from: etf.nav.navDate), 6)   // closingNavDate 2026/07/06
+    }
+
+    func testCathayEstimateIsAnchoredToClosingNavDate() throws {
+        // 預估淨值 for Taiwan day T is struck at T's 09:00 open — 21:00 ET on T−1 — so the newest
+        // US close in it is T−1's, which is what Cathay reports as closingNavDate.
+        let etf = try CathayETFSource.parse(fixtureData("cathay_navlist"), stockCode: "00830", now: Date())
+        XCTAssertEqual(etf.nav.usCloseDate, etDay(2026, 7, 6))
+    }
+
+    func testCathayClosingNavFallbackIsAnchoredOneCloseEarlier() throws {
+        // Before the issuer strikes the estimate the NAV falls back to 昨收淨值 — Taiwan day T−1's
+        // own settled NAV, one US close older. Anchoring it to closingNavDate would credit it with
+        // a session it never saw.
+        let payload = Data("""
+        {"result":[{"stockCode":"00830","closingNav":91.68,"closingNavString":"91.68",
+                    "closingNavDate":"2026/07/06","estimateNav":null,"estimateNavString":"--"}]}
+        """.utf8)
+        let etf = try CathayETFSource.parse(payload, stockCode: "00830", now: Date())
+        XCTAssertEqual(dbl(etf.nav.value), 91.68, accuracy: 0.0001)
+        XCTAssertEqual(etf.nav.usCloseDate, etDay(2026, 7, 5))
     }
 
     func testCathayETFUnknownCodeIsUnavailable() {

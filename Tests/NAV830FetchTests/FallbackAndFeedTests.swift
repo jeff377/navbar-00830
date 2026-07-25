@@ -42,6 +42,62 @@ final class FallbackProxySourceTests: XCTestCase {
             XCTFail("expected .allFailed, got \(error)")
         }
     }
+
+    // MARK: - Re-anchoring to the close the official NAV was struck against
+
+    /// SOXX frozen at Friday's close (527.01, −4.40% on the day), with the official NAV still the
+    /// one struck on Friday morning against Thursday's close (551.24). This is the weekend state:
+    /// Taiwan does not reopen until Monday, so the NAV cannot absorb Friday's drop before then.
+    private func fridayQuote() -> ProxyQuote {
+        ProxyQuote(symbol: .soxx, baseClose: dec("527.01"), baseCloseDate: etDay(2026, 7, 24),
+                   latestPrice: dec("527.00"), latestAt: etDay(2026, 7, 24), session: .afterHours)
+    }
+
+    func testReanchorsWhenTheNAVPredatesTheNewestClose() async {
+        let fb = FallbackProxySource([
+            StubProxySource(symbol: .soxx, outcome: .success(fridayQuote()),
+                            history: DatedClose(close: dec("551.24"), date: etDay(2026, 7, 23)))
+        ])
+        let out = await fb.reanchor([fridayQuote()], toNAVClose: etDay(2026, 7, 23))
+        XCTAssertEqual(dbl(out[0].baseClose), 551.24, accuracy: 0.0001)
+        XCTAssertEqual(out[0].baseCloseDate, etDay(2026, 7, 23))
+        // Without this the −4.40% Friday session vanishes and the revalued NAV equals the
+        // official one all weekend — the bug this guards.
+        XCTAssertEqual(dbl(NAVCalculator.proxyReturn(out[0])), -0.0440, accuracy: 0.0002)
+    }
+
+    func testDoesNotReanchorWhenTheNAVAlreadyHasThatClose() async {
+        // Taiwan session: the NAV was struck against exactly this close, so re-applying the move
+        // would double-count it.
+        let fb = FallbackProxySource([
+            StubProxySource(symbol: .soxx, outcome: .success(fridayQuote()),
+                            history: DatedClose(close: dec("551.24"), date: etDay(2026, 7, 23)))
+        ])
+        let out = await fb.reanchor([fridayQuote()], toNAVClose: etDay(2026, 7, 24))
+        XCTAssertEqual(dbl(out[0].baseClose), 527.01, accuracy: 0.0001)
+        // Only the 1-cent post-market drift against the close remains, not the day's −4.40%.
+        XCTAssertEqual(dbl(NAVCalculator.proxyReturn(out[0])), 0, accuracy: 1e-4)
+    }
+
+    func testKeepsQuoteWhenHistoryLookupFails() async {
+        // Degrade rather than blank the popover: a stale base is still a usable estimate.
+        let fb = FallbackProxySource([StubProxySource(symbol: .soxx, outcome: .success(fridayQuote()), history: nil)])
+        let out = await fb.reanchor([fridayQuote()], toNAVClose: etDay(2026, 7, 23))
+        XCTAssertEqual(dbl(out[0].baseClose), 527.01, accuracy: 0.0001)
+    }
+
+    func testUndatedBaseIsLeftAlone() async {
+        // A live regular-session tick carries no base date — its base is the previous close, which
+        // is what the NAV used anyway.
+        let live = ProxyQuote(symbol: .soxx, baseClose: dec("551.24"), latestPrice: dec("530.00"),
+                              latestAt: etDay(2026, 7, 24), session: .regular)
+        let fb = FallbackProxySource([
+            StubProxySource(symbol: .soxx, outcome: .success(live),
+                            history: DatedClose(close: dec("999"), date: etDay(2026, 7, 23)))
+        ])
+        let out = await fb.reanchor([live], toNAVClose: etDay(2026, 7, 23))
+        XCTAssertEqual(dbl(out[0].baseClose), 551.24, accuracy: 0.0001)
+    }
 }
 
 /// The full pipeline from raw recorded bytes to a premium/discount, wired exactly as the live
