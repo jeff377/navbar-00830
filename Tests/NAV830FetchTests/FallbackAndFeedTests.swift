@@ -43,60 +43,67 @@ final class FallbackProxySourceTests: XCTestCase {
         }
     }
 
-    // MARK: - Re-anchoring to the close the official NAV was struck against
+    // MARK: - Anchoring to the close the official NAV was struck against
 
-    /// SOXX frozen at Friday's close (527.01, −4.40% on the day), with the official NAV still the
-    /// one struck on Friday morning against Thursday's close (551.24). This is the weekend state:
-    /// Taiwan does not reopen until Monday, so the NAV cannot absorb Friday's drop before then.
+    /// SOXX frozen at Friday's close (527.01, −4.40% on the day) with a post-market print of 527.00.
+    /// As fetched it carries no base date — the quote endpoint cannot date its own close.
     private func fridayQuote() -> ProxyQuote {
-        ProxyQuote(symbol: .soxx, baseClose: dec("527.01"), baseCloseDate: etDay(2026, 7, 24),
+        ProxyQuote(symbol: .soxx, baseClose: dec("527.01"),
                    latestPrice: dec("527.00"), latestAt: etDay(2026, 7, 24), session: .afterHours)
     }
 
-    func testReanchorsWhenTheNAVPredatesTheNewestClose() async {
-        let fb = FallbackProxySource([
-            StubProxySource(symbol: .soxx, outcome: .success(fridayQuote()),
-                            history: DatedClose(close: dec("551.24"), date: etDay(2026, 7, 23)))
-        ])
-        let out = await fb.reanchor([fridayQuote()], toNAVClose: etDay(2026, 7, 23))
+    private func fb(history: DatedClose?) -> FallbackProxySource {
+        FallbackProxySource([StubProxySource(symbol: .soxx, outcome: .success(fridayQuote()), history: history)])
+    }
+
+    func testAnchorsToTheNAVsCloseEvenThoughTheQuoteLooksCurrent() async {
+        // The official NAV was struck Friday morning against Thursday's close, so Friday's −4.40%
+        // is still missing from it. The quote's own 527.01/527.00 pairing hides that entirely.
+        let out = await fb(history: DatedClose(close: dec("551.24"), date: etDay(2026, 7, 23)))
+            .anchoredQuotes([fridayQuote()], toNAVClose: etDay(2026, 7, 23))
         XCTAssertEqual(dbl(out[0].baseClose), 551.24, accuracy: 0.0001)
         XCTAssertEqual(out[0].baseCloseDate, etDay(2026, 7, 23))
-        // Without this the −4.40% Friday session vanishes and the revalued NAV equals the
-        // official one all weekend — the bug this guards.
         XCTAssertEqual(dbl(NAVCalculator.proxyReturn(out[0])), -0.0440, accuracy: 0.0002)
     }
 
-    func testDoesNotReanchorWhenTheNAVAlreadyHasThatClose() async {
-        // Taiwan session: the NAV was struck against exactly this close, so re-applying the move
-        // would double-count it.
-        let fb = FallbackProxySource([
-            StubProxySource(symbol: .soxx, outcome: .success(fridayQuote()),
-                            history: DatedClose(close: dec("551.24"), date: etDay(2026, 7, 23)))
-        ])
-        let out = await fb.reanchor([fridayQuote()], toNAVClose: etDay(2026, 7, 24))
+    func testAnchoringToTheSameSessionAddsNoMove() async {
+        // Taiwan session: the NAV was struck against this very close, so the history lookup returns
+        // it and the move collapses to the post-market drift — no double-counting.
+        let out = await fb(history: DatedClose(close: dec("527.01"), date: etDay(2026, 7, 24)))
+            .anchoredQuotes([fridayQuote()], toNAVClose: etDay(2026, 7, 24))
         XCTAssertEqual(dbl(out[0].baseClose), 527.01, accuracy: 0.0001)
-        // Only the 1-cent post-market drift against the close remains, not the day's −4.40%.
         XCTAssertEqual(dbl(NAVCalculator.proxyReturn(out[0])), 0, accuracy: 1e-4)
     }
 
-    func testKeepsQuoteWhenHistoryLookupFails() async {
-        // Degrade rather than blank the popover: a stale base is still a usable estimate.
-        let fb = FallbackProxySource([StubProxySource(symbol: .soxx, outcome: .success(fridayQuote()), history: nil)])
-        let out = await fb.reanchor([fridayQuote()], toNAVClose: etDay(2026, 7, 23))
-        XCTAssertEqual(dbl(out[0].baseClose), 527.01, accuracy: 0.0001)
+    func testDropsQuoteWhenTheBaseCannotBeEstablished() async {
+        // A base we cannot tie to a trading day yields an arbitrary premium. Publishing that is
+        // worse than publishing nothing — it reads as a real signal.
+        let out = await fb(history: nil).anchoredQuotes([fridayQuote()], toNAVClose: etDay(2026, 7, 23))
+        XCTAssertTrue(out.isEmpty)
     }
 
-    func testUndatedBaseIsLeftAlone() async {
-        // A live regular-session tick carries no base date — its base is the previous close, which
-        // is what the NAV used anyway.
-        let live = ProxyQuote(symbol: .soxx, baseClose: dec("551.24"), latestPrice: dec("530.00"),
-                              latestAt: etDay(2026, 7, 24), session: .regular)
-        let fb = FallbackProxySource([
-            StubProxySource(symbol: .soxx, outcome: .success(live),
-                            history: DatedClose(close: dec("999"), date: etDay(2026, 7, 23)))
-        ])
-        let out = await fb.reanchor([live], toNAVClose: etDay(2026, 7, 23))
-        XCTAssertEqual(dbl(out[0].baseClose), 551.24, accuracy: 0.0001)
+    func testDropsQuoteWhenTheNAVHasNoAnchorDate() async {
+        let out = await fb(history: DatedClose(close: dec("551.24"), date: etDay(2026, 7, 23)))
+            .anchoredQuotes([fridayQuote()], toNAVClose: nil)
+        XCTAssertTrue(out.isEmpty)
+    }
+
+    func testHistoryIsLookedUpOncePerAnchorDate() async {
+        // The anchor moves once a day; the app polls every 15s–5min. Re-requesting the historical
+        // table on every tick would be pure waste (and extra rate-limit exposure).
+        let counting = CountingProxySource(symbol: .soxx, quote: fridayQuote(),
+                                           history: DatedClose(close: dec("551.24"), date: etDay(2026, 7, 23)))
+        let fb = FallbackProxySource([counting])
+        for _ in 0..<5 {
+            _ = await fb.anchoredQuotes([fridayQuote()], toNAVClose: etDay(2026, 7, 23))
+        }
+        var calls = await counting.calls
+        XCTAssertEqual(calls, 1)
+
+        // A new anchor date must invalidate it rather than serve the previous session's close.
+        _ = await fb.anchoredQuotes([fridayQuote()], toNAVClose: etDay(2026, 7, 24))
+        calls = await counting.calls
+        XCTAssertEqual(calls, 2)
     }
 }
 
@@ -109,6 +116,10 @@ final class DataFeedTests: XCTestCase {
             let s = url.absoluteString
             if s.contains("mis.twse.com.tw") { return fixtureData("twse_mis_00830") }
             if s.contains("cwapi.cathaysite.com.tw") { return fixtureData("cathay_navlist") }
+            // Anchor lookup: cathay_navlist is dated 2026/07/06, whose close (581.51) the SOXX
+            // after-hours fixture also carries — so anchoring is a no-op here and the expected
+            // numbers below are the pure post-market move.
+            if s.contains("historical") { return fixtureData("nasdaq_soxx_historical_july06") }
             if s.contains("api.nasdaq.com") {
                 // SOXX serves the frozen after-hours shape; SOXQ/SOXL serve the regular-session
                 // (market-open) shape — both now parse, exercising both pairing paths at once.

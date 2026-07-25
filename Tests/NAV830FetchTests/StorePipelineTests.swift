@@ -37,15 +37,15 @@ final class StorePipelineTests: XCTestCase {
         XCTAssertEqual(dbl(primary?.revaluedNAV ?? 0), 87.22, accuracy: 0.05)
     }
 
-    func testStoreLeavesQuotesAloneWhenTheNAVAlreadyHasTheClose() async {
-        // Same fixtures, but the historical lookup is unreachable *and* the NAV is current: the
-        // frozen close is the one it was struck against, so the estimate must equal the official
-        // NAV rather than re-applying a session.
+    func testStoreAddsOnlyThePostMarketMoveWhenTheNAVHasTheClose() async {
+        // The after-hours payload's regular close IS 07/06 — the one the NAV was struck against —
+        // so anchoring resolves to the same close and only the post-market move remains.
         let client = StubHTTPClient { url in
             let s = url.absoluteString
             if s.contains("mis.twse.com.tw") { return fixtureData("twse_mis_00830") }
             if s.contains("cwapi.cathaysite.com.tw") { return fixtureData("cathay_navlist") }
-            if s.contains("/info") { return fixtureData("nasdaq_soxx_afterhours") }  // dated 07/06
+            if s.contains("historical") { return fixtureData("nasdaq_soxx_historical_july06") }
+            if s.contains("/info") { return fixtureData("nasdaq_soxx_afterhours") }  // 07/06 close
             return nil
         }
         let store = ETFStore(client: client)
@@ -55,5 +55,24 @@ final class StorePipelineTests: XCTestCase {
         XCTAssertEqual(primary?.baseCloseDate, etDay(2026, 7, 6))
         // Only the 07/06 post-market move (581.51 → 576.00), not a whole extra session.
         XCTAssertEqual(dbl(primary?.proxyReturn ?? 0), -0.0095, accuracy: 0.0005)
+    }
+
+    func testStorePublishesNoReportRatherThanAnUnanchoredOne() async {
+        // History unreachable ⇒ the base cannot be tied to the NAV's session. The official NAV and
+        // the market price still show; only the derived premium is withheld.
+        let client = StubHTTPClient { url in
+            let s = url.absoluteString
+            if s.contains("mis.twse.com.tw") { return fixtureData("twse_mis_00830") }
+            if s.contains("cwapi.cathaysite.com.tw") { return fixtureData("cathay_navlist") }
+            if s.contains("historical") { return nil }
+            if s.contains("/info") { return fixtureData("nasdaq_soxx_frozen") }
+            return nil
+        }
+        let store = ETFStore(client: client)
+        await store.refreshOnce()
+
+        XCTAssertNil(store.snapshot?.report, "an unverified base must not reach the label")
+        XCTAssertNotNil(store.snapshot?.officialNAV)
+        XCTAssertNotNil(store.snapshot?.price)
     }
 }

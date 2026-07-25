@@ -44,6 +44,28 @@ struct StubProxySource: ProxySource {
     }
 }
 
+/// Counts history lookups, to prove the anchor close is fetched once per anchor date and not
+/// re-requested on every refresh tick.
+actor CountingProxySource: ProxySource {
+    nonisolated let symbol: ProxySymbol
+    private let quote: ProxyQuote
+    private let history: DatedClose
+    private(set) var calls = 0
+
+    init(symbol: ProxySymbol, quote: ProxyQuote, history: DatedClose) {
+        self.symbol = symbol
+        self.quote = quote
+        self.history = history
+    }
+
+    func fetchQuote() async throws -> ProxyQuote { quote }
+
+    func regularClose(onOrBefore date: Date) async throws -> DatedClose {
+        calls += 1
+        return history
+    }
+}
+
 /// ET midnight of a trading day, the granularity `baseCloseDate` / `usCloseDate` compare at.
 func etDay(_ y: Int, _ mo: Int, _ d: Int) -> Date {
     at(y, mo, d, 0, 0, tz: "America/New_York")

@@ -78,17 +78,18 @@ final class SourceParsingTests: XCTestCase {
         XCTAssertEqual(dbl(r.revaluedNAV), 87.73, accuracy: 0.001)
     }
 
-    func testFrozenBaseIsDatedForReanchoring() throws {
-        // The frozen payload dates its close as "Jul 7, 2026" — no clock component. It must still
-        // parse, because that date is what decides whether the official NAV already contains this
-        // close. Left unparsed, every frozen quote silently claims to be anchored to today.
-        let quote = try NasdaqProxySource.parse(fixtureData("nasdaq_soxx_frozen"), symbol: .soxx)
-        XCTAssertEqual(quote.baseCloseDate, etDay(2026, 7, 7))
-    }
-
-    func testAfterHoursBaseIsDatedToTheRegularClose() throws {
-        let quote = try NasdaqProxySource.parse(fixtureData("nasdaq_soxx_afterhours"), symbol: .soxx)
-        XCTAssertEqual(quote.baseCloseDate, etDay(2026, 7, 6))
+    func testQuoteEndpointNeverDatesItsOwnBase() throws {
+        // The quote payload carries a `lastTradeTimestamp`, and it is tempting to read it as the
+        // trading day of `lastSalePrice`. It is not: observed 2026-07-25, $527.01 (Friday 07/24's
+        // close) was stamped "Jul 24, 2026" at 21:13 ET Friday and "Jul 23, 2026" at 02:13 ET
+        // Saturday — same price, date rolled back, on all three symbols. Anchoring off it made the
+        // revaluation flip between correct and wrong. The base is dated only by the historical
+        // table, so parse must leave it unset regardless of session.
+        for fixture in ["nasdaq_soxx_frozen", "nasdaq_soxx_afterhours", "nasdaq_soxx_open", "nasdaq_soxx_premarket"] {
+            let quote = try NasdaqProxySource.parse(fixtureData(fixture), symbol: .soxx)
+            XCTAssertNil(quote.baseCloseDate, "\(fixture) must not date its own base")
+            XCTAssertFalse(quote.isAnchored, "\(fixture) is not fit to revalue until anchored")
+        }
     }
 
     func testHistoricalPicksLastCloseOnOrBeforeCutoff() throws {

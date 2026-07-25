@@ -91,11 +91,17 @@ public struct NasdaqProxySource: ProxySource {
             throw SourceError.unavailable("Nasdaq \(symbol.rawValue): no primary price (symbol not listed?)")
         }
 
-        // `baseClose` is this source's best guess at the close the official NAV was struck
-        // against, and `latestPrice` whatever came after it. The guess is only ever "the newest
-        // completed close" — correct while Taiwan is trading, but one session too new once the
-        // US has closed again. `baseCloseDate` is therefore reported alongside it so the feed
-        // can re-anchor against `OfficialNAV.usCloseDate` (see `DataFeed`).
+        // `baseClose` here is only a provisional pairing — "the newest completed close" — which is
+        // the close the official NAV used ONLY while Taiwan is trading. The anchoring step replaces
+        // it with the close dated to `OfficialNAV.usCloseDate` before any math runs, so
+        // `baseCloseDate` is deliberately left nil: this endpoint cannot date its own close.
+        //
+        // WARNING: do NOT date it from `lastTradeTimestamp`. That field is not the trading day of
+        // `lastSalePrice` — it rolls backwards on its own while the price stays put. Observed
+        // 2026-07-25: $527.01 (Friday 07/24's close, confirmed by netChange and the historical
+        // table) was stamped "Jul 24, 2026" at 21:13 ET Friday and "Jul 23, 2026" at 02:13 ET
+        // Saturday, on all three symbols. Trusting it made the revaluation flip between correct
+        // and wrong as the label moved. The historical table is the only dated source here.
         let at = primary.lastTradeTimestamp.flatMap(Parse.nasdaqTimestamp) ?? Date()
         let status = (payload.marketStatus ?? "").lowercased()
 
@@ -108,13 +114,7 @@ public struct NasdaqProxySource: ProxySource {
         // which equals the previous close in both.
         let isLiveTick = status == "open" || status.contains("pre-market") || status.contains("premarket")
         if isLiveTick, let chgStr = primary.netChange, let change = Parse.decimal(chgStr) {
-            // The base here is the *previous* close; only Pre-Market dates it for us (secondaryData
-            // reads "Closed at <date>"). Left nil during the regular session — where the previous
-            // close is what the official NAV used anyway, so there is nothing to re-anchor.
-            let baseDate = status == "open"
-                ? nil
-                : payload.secondaryData?.lastTradeTimestamp.flatMap(Parse.nasdaqTimestamp).map(Parse.easternDay)
-            return ProxyQuote(symbol: symbol, baseClose: regular - change, baseCloseDate: baseDate,
+            return ProxyQuote(symbol: symbol, baseClose: regular - change,
                               latestPrice: regular, latestAt: at,
                               session: status == "open" ? .regular : .preMarket)
         }
@@ -122,16 +122,12 @@ public struct NasdaqProxySource: ProxySource {
         // Post-market: `primary` is the completed regular close, `secondaryData` the newer print.
         if let extStr = payload.secondaryData?.lastSalePrice, let ext = Parse.decimal(extStr) {
             let extAt = payload.secondaryData?.lastTradeTimestamp.flatMap(Parse.nasdaqTimestamp) ?? at
-            return ProxyQuote(symbol: symbol, baseClose: regular, baseCloseDate: Parse.easternDay(at),
-                              latestPrice: ext, latestAt: extAt, session: .afterHours)
+            return ProxyQuote(symbol: symbol, baseClose: regular, latestPrice: ext, latestAt: extAt, session: .afterHours)
         }
 
-        // Closed, no extended data → frozen at the last completed regular close. That close is in
-        // the official NAV only while Taiwan is trading; afterwards the feed re-anchors this quote
-        // to the older close the NAV actually used. fetchQuote may first top it up with the
-        // retained post-market close.
-        return ProxyQuote(symbol: symbol, baseClose: regular, baseCloseDate: Parse.easternDay(at),
-                          latestPrice: regular, latestAt: at, session: .frozen)
+        // Closed, no extended data → frozen at the last completed regular close. fetchQuote may
+        // top this up with the retained post-market close.
+        return ProxyQuote(symbol: symbol, baseClose: regular, latestPrice: regular, latestAt: at, session: .frozen)
     }
 
     // MARK: - Extended-trading (retained post-market close)

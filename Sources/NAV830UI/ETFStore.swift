@@ -24,7 +24,10 @@ public final class ETFStore: ObservableObject {
         }
     }
 
-    public static let thresholdKey = "discountThresholdPct"
+    /// `nonisolated` because the widget extension reads it off the main actor to look the threshold
+    /// up in UserDefaults. An immutable `String` needs no isolation; without this it inherits the
+    /// class's `@MainActor` and the cross-actor read is an error under the Swift 6 language mode.
+    public nonisolated static let thresholdKey = "discountThresholdPct"
 
     /// Called on the main actor after each publish so an AppKit host can refresh the status item.
     public var onPublish: (() -> Void)?
@@ -147,20 +150,26 @@ public final class ETFStore: ObservableObject {
             if !proxyResult.quotes.isEmpty { rawQuotes = proxyResult.quotes; lastGoodFetch = Date() }
             lastMarketFetch = Date()
         }
-        await reanchorIfNeeded()
+        await anchorIfNeeded()
         statuses = buildStatuses()
         recompute()
     }
 
-    /// WARNING: the proxies date their base close as the newest completed US close, which is one
-    /// session too new from the US close until Taiwan next opens (04:00–09:00 Taipei on weekdays,
-    /// and all weekend). Skipping this drops that session's move entirely — a −4.4% Friday shows
-    /// as a flat NAV all weekend. Runs on both the fetch path and after the NAV rolls forward,
-    /// since either side moving invalidates the pairing.
-    private func reanchorIfNeeded() async {
+    /// WARNING: a freshly fetched proxy quote pairs its latest price with "the newest completed US
+    /// close", which is one session too new from the US close until Taiwan next opens (04:00–09:00
+    /// Taipei on weekdays, and all weekend). Skipping this drops that session's move entirely — a
+    /// −4.4% Friday shows as a flat NAV all weekend. Runs when either side moves, since either
+    /// invalidates the pairing.
+    private func anchorIfNeeded() async {
         let anchor = nav?.usCloseDate
         if let done = anchoredFrom, done.raw == rawQuotes, done.anchor == anchor { return }
-        quotes = await proxySource.reanchor(rawQuotes, toNAVClose: anchor)
+        let anchored = await proxySource.anchoredQuotes(rawQuotes, toNAVClose: anchor)
+        // Keep the previous anchored set when anchoring fails, and do NOT record `anchoredFrom`, so
+        // the next tick retries. Falling back to the raw quotes would publish a premium measured
+        // from an unverified base — the failure mode that made the value flip between correct and
+        // wrong — and caching the failure would freeze it there.
+        guard !anchored.isEmpty else { return }
+        quotes = anchored
         anchoredFrom = (rawQuotes, anchor)
     }
 

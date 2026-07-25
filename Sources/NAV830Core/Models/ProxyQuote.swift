@@ -59,18 +59,17 @@ public struct ProxyQuote: Sendable, Equatable {
         self.session = session
     }
 
-    /// Same latest price, measured from an older close — the one the official NAV actually used.
-    /// The resulting move then spans every session in between, which is exactly the gap the
-    /// official NAV has yet to absorb.
-    public func reanchored(to base: DatedClose) -> ProxyQuote {
+    /// Same latest price, measured from the close the official NAV was struck against. The move
+    /// then spans every session in between — exactly the gap the official NAV has yet to absorb.
+    ///
+    /// A quote is only fit to revalue against once this has been applied: as fetched, its base is
+    /// a guess ("the newest close") that holds only while Taiwan is trading.
+    public func anchored(to base: DatedClose) -> ProxyQuote {
         ProxyQuote(symbol: symbol, baseClose: base.close, baseCloseDate: base.date,
                    latestPrice: latestPrice, latestAt: latestAt, session: session)
     }
 
-    /// Whether this quote's base is newer than what `navAnchor` (the official NAV's valuation
-    /// close) incorporates — i.e. the move between the two is missing from the revaluation.
-    public func needsReanchoring(to navAnchor: Date?) -> Bool {
-        guard let navAnchor, let baseCloseDate else { return false }
-        return baseCloseDate > navAnchor
-    }
+    /// Whether the base has been tied to a known trading day. False ⇒ the move is not measured
+    /// from anything the official NAV agrees with, so the revaluation would be arbitrary.
+    public var isAnchored: Bool { baseCloseDate != nil }
 }
