@@ -15,6 +15,13 @@ settings:
     # "Apple Development" certificate (Xcode creates it after signing in under Settings → Accounts).
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: 5M7B43XSN6
+    # Version lives here so the app and its embedded widget cannot drift apart — an extension whose
+    # CFBundleVersion differs from its parent app is a build warning and an App Store rejection.
+    # Independent of the macOS shell's version in scripts/publish.sh (separate bundle, separate
+    # install). Bump CURRENT_PROJECT_VERSION monotonically: iOS refuses to install a lower build
+    # over a higher one.
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: "1.0"
 
 targets:
   NAV830iOS:
@@ -39,6 +46,11 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_CFBundleDisplayName: NAV830 費半
+        # The bundle ships for iPad too (device family defaults to iPhone+iPad), and iPad apps must
+        # either declare all four orientations or opt out of multitasking. The view is a single
+        # scrolling column, so supporting all four is the honest answer rather than forcing
+        # full-screen.
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
 
   NAV830Widget:
     type: app-extension
