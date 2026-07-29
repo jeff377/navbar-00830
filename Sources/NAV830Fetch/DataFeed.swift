@@ -6,10 +6,13 @@ public struct SourceStatus: Sendable, Equatable {
     public let name: String
     public let ok: Bool
     public let detail: String?
-    public init(name: String, ok: Bool, detail: String? = nil) {
+    /// The provider's own page for this figure, for checking the value by hand. Nil ⇒ no page.
+    public let page: URL?
+    public init(name: String, ok: Bool, detail: String? = nil, page: URL? = nil) {
         self.name = name
         self.ok = ok
         self.detail = detail
+        self.page = page
     }
 }
 
@@ -97,14 +100,15 @@ public struct DataFeed: Sendable {
         let quotes = await proxies.anchoredQuotes(rawQuotes, toNAVClose: (try? etf.get())?.nav.usCloseDate)
 
         var statuses: [SourceStatus] = [
-            status("Cathay 官方淨值", etf),
-            status("TWSE 市價", priceValue)
+            status("Cathay 官方淨值", etf, page: SourcePage.cathayEstimate),
+            status("TWSE 市價", priceValue, page: SourcePage.twseMIS)
         ]
         for symbol in ProxySymbol.allCases {
+            let page = SourcePage.nasdaq(symbol)
             if quotes.contains(where: { $0.symbol == symbol }) {
-                statuses.append(SourceStatus(name: "Nasdaq \(symbol.rawValue)", ok: true))
+                statuses.append(SourceStatus(name: "Nasdaq \(symbol.rawValue)", ok: true, page: page))
             } else if let err = proxyErrors.first(where: { $0.0 == symbol })?.1 {
-                statuses.append(SourceStatus(name: "Nasdaq \(symbol.rawValue)", ok: false, detail: describe(err)))
+                statuses.append(SourceStatus(name: "Nasdaq \(symbol.rawValue)", ok: false, detail: describe(err), page: page))
             }
         }
 
@@ -132,10 +136,10 @@ public struct DataFeed: Sendable {
         catch { return .failure(.network("\(error)")) }
     }
 
-    private func status<T>(_ name: String, _ r: Result<T, SourceError>) -> SourceStatus {
+    private func status<T>(_ name: String, _ r: Result<T, SourceError>, page: URL? = nil) -> SourceStatus {
         switch r {
-        case .success: return SourceStatus(name: name, ok: true)
-        case .failure(let e): return SourceStatus(name: name, ok: false, detail: describe(e))
+        case .success: return SourceStatus(name: name, ok: true, page: page)
+        case .failure(let e): return SourceStatus(name: name, ok: false, detail: describe(e), page: page)
         }
     }
 

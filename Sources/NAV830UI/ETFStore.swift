@@ -218,11 +218,13 @@ public final class ETFStore: ObservableObject {
     /// staleness is surfaced separately by the header's liveness badge.
     private func buildStatuses() -> [SourceStatus] {
         var out = [
-            SourceStatus(name: "Cathay 官方淨值", ok: nav != nil),
-            SourceStatus(name: "TWSE 市價", ok: price != nil)
+            SourceStatus(name: "Cathay 官方淨值", ok: nav != nil, page: SourcePage.cathayEstimate),
+            SourceStatus(name: "TWSE 市價", ok: price != nil, page: SourcePage.twseMIS)
         ]
         for symbol in ProxySymbol.allCases {
-            out.append(SourceStatus(name: "Nasdaq \(symbol.rawValue)", ok: quotes.contains { $0.symbol == symbol }))
+            out.append(SourceStatus(name: "Nasdaq \(symbol.rawValue)",
+                                    ok: quotes.contains { $0.symbol == symbol },
+                                    page: SourcePage.nasdaq(symbol)))
         }
         return out
     }
@@ -241,10 +243,10 @@ public final class ETFStore: ObservableObject {
         let priceFix = MarketPrice(price: Decimal(string: "87.50")!, timestamp: Date(), source: "demo")
         nav = navFix; quotes = [soxx, soxq]; price = priceFix
         statuses = [
-            SourceStatus(name: "Cathay 淨值/市價", ok: true),
-            SourceStatus(name: "Nasdaq SOXX", ok: true),
-            SourceStatus(name: "Nasdaq SOXQ", ok: true),
-            SourceStatus(name: "Nasdaq SOXL", ok: false)
+            SourceStatus(name: "Cathay 淨值/市價", ok: true, page: SourcePage.cathayEstimate),
+            SourceStatus(name: "Nasdaq SOXX", ok: true, page: SourcePage.nasdaq(.soxx)),
+            SourceStatus(name: "Nasdaq SOXQ", ok: true, page: SourcePage.nasdaq(.soxq)),
+            SourceStatus(name: "Nasdaq SOXL", ok: false, page: SourcePage.nasdaq(.soxl))
         ]
         lastMarketFetch = Date()
         recompute()

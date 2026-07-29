@@ -100,7 +100,10 @@ public struct DetailView: View {
             Text("美股代理盤後").font(.caption).foregroundStyle(.secondary)
             ForEach(quotes, id: \.symbol) { q in
                 HStack {
-                    Text(q.symbol.rawValue).monospaced().frame(width: 50, alignment: .leading)
+                    // The symbol opens Nasdaq's own page: regular close and after-hours print side
+                    // by side, which is what a suspect percentage has to be checked against.
+                    Link(q.symbol.rawValue, destination: SourcePage.nasdaq(q.symbol))
+                        .monospaced().frame(width: 50, alignment: .leading)
                     Text(Fmt.signedPct(NAVCalculator.proxyReturn(q))).foregroundStyle(.secondary)
                     Spacer()
                     Text(inavByProxy[q.symbol].map { "iNAV \(Fmt.money($0))" } ?? "iNAV —").monospacedDigit()
@@ -114,7 +117,11 @@ public struct DetailView: View {
             ForEach(store.snapshot?.statuses ?? [], id: \.name) { s in
                 HStack(spacing: 6) {
                     Circle().fill(s.ok ? Color.green : Color.red).frame(width: 7, height: 7)
-                    Text(s.name).font(.caption)
+                    if let page = s.page {
+                        Link(s.name, destination: page).font(.caption)
+                    } else {
+                        Text(s.name).font(.caption)
+                    }
                     if let d = s.detail, !s.ok {
                         Text(d).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     }
