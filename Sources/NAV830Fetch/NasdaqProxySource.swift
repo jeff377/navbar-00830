@@ -47,9 +47,19 @@ public struct NasdaqProxySource: ProxySource {
 
     /// The last regular close on or before `date`, from Nasdaq's historical table. A window of
     /// two weeks back is requested so the lookup still lands on a close through a long holiday.
+    ///
+    /// WARNING: `todate` is EXCLUSIVE — a row dated `todate` is omitted from the response, so the
+    /// request must reach one day past the anchor or the anchor day's own close is invisible.
+    /// Observed 2026-07-29: `todate=2026-07-28` returned 07/27 (516.23) as the newest row while
+    /// `todate=2026-07-29` returned 07/28 (491.46). The lookup then silently took 07/27 — a whole
+    /// regular session too old — and the after-hours move read −4.26% instead of +0.56%, because
+    /// Tuesday's −4.80% regular drop was counted a second time on top of the official NAV that
+    /// already contained it. The cutoff still lands on `date`: `parseHistorical` drops any row
+    /// newer than it.
     public func regularClose(onOrBefore date: Date) async throws -> DatedClose {
         let from = Parse.easternDay(date, offsetByDays: -14)
-        let url = URL(string: "https://api.nasdaq.com/api/quote/\(symbol.rawValue)/historical?assetclass=etf&fromdate=\(Self.isoDay(from))&todate=\(Self.isoDay(date))&limit=30")!
+        let through = Parse.easternDay(date, offsetByDays: 1)
+        let url = URL(string: "https://api.nasdaq.com/api/quote/\(symbol.rawValue)/historical?assetclass=etf&fromdate=\(Self.isoDay(from))&todate=\(Self.isoDay(through))&limit=30")!
         guard let match = Self.parseHistorical(try await client.get(url, headers: headers), onOrBefore: date) else {
             throw SourceError.unavailable("Nasdaq \(symbol.rawValue): no regular close on or before \(Self.isoDay(date))")
         }

@@ -110,6 +110,40 @@ final class SourceParsingTests: XCTestCase {
         XCTAssertEqual(match.date, etDay(2026, 7, 24))
     }
 
+    func testHistoricalRequestReachesPastTheAnchorDay() async throws {
+        // REGRESSION (2026-07-29): Nasdaq's historical table omits the row dated `todate`, so a
+        // request ending exactly on the anchor day hides that day's own close and the "on or
+        // before" lookup silently settles for the session before it. Live that day, the anchor was
+        // ET 07/28 and the base came back as 07/27's 516.23 instead of 07/28's 491.46, so the
+        // after-hours print read −4.26% instead of +0.56% — Tuesday's −4.80% regular drop counted a
+        // second time on top of an official NAV that already contained it. The stub reproduces the
+        // exclusivity: the newest row it will serve is the day before the requested `todate`.
+        let client = StubHTTPClient { url in
+            guard url.absoluteString.contains("historical"),
+                  let todate = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                      .queryItems?.first(where: { $0.name == "todate" })?.value else { return nil }
+            return Self.historicalRows(before: todate)
+        }
+        let close = try await NasdaqProxySource(symbol: .soxx, client: client)
+            .regularClose(onOrBefore: etDay(2026, 7, 24))
+        XCTAssertEqual(close.date, etDay(2026, 7, 24))
+        XCTAssertEqual(dbl(close.close), 527.01, accuracy: 0.0001)
+    }
+
+    /// The historical fixture with every row dated `todate` or later removed, mirroring how Nasdaq
+    /// answers the endpoint. `todate` is ISO ("yyyy-MM-dd"); the rows carry "MM/dd/yyyy".
+    private static func historicalRows(before todate: String) -> Data {
+        let json = try! JSONSerialization.jsonObject(with: fixtureData("nasdaq_soxx_historical")) as! [String: Any]
+        var data = json["data"] as! [String: Any]
+        var table = data["tradesTable"] as! [String: Any]
+        table["rows"] = (table["rows"] as! [[String: Any]]).filter { row in
+            let parts = (row["date"] as! String).split(separator: "/")
+            return "\(parts[2])-\(parts[0])-\(parts[1])" < todate
+        }
+        data["tradesTable"] = table
+        return try! JSONSerialization.data(withJSONObject: ["data": data])
+    }
+
     func testExtendedPostParse() throws {
         // "$544.6 -36.91 (-6.35%)" → 544.6
         let post = try XCTUnwrap(NasdaqProxySource.parseExtendedPost(fixtureData("nasdaq_soxx_extended_post")))
