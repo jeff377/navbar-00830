@@ -62,6 +62,33 @@ enum Parse {
         easternFormatter("yyyy/MM/dd").date(from: raw.trimmingCharacters(in: .whitespaces))
     }
 
+    /// The ET trading day whose 16:00 close is the newest *completed* regular close at `now`.
+    ///
+    /// This is what dates a quote's base close, and it is derived from our own clock and the US
+    /// calendar — never from anything the quote says about itself. Nasdaq's `lastTradeTimestamp`
+    /// rolls backwards on its own (see `NasdaqProxySource.parse`), and the historical table, which
+    /// is dated properly, does not publish the day's row until about an hour after the post-market
+    /// session ends — a gap that covers the Taiwan pre-open.
+    ///
+    /// It holds in every session: before 16:00 ET (pre-market, regular session) the newest
+    /// completed close is the previous trading day's, which is exactly the base those payloads
+    /// quote against; from 16:00 ET onwards it is today's own close, the base of the after-hours
+    /// print. Weekends and holidays fall back to the last trading day.
+    ///
+    /// NOTE: half-day sessions close at 13:00 ET. Treating them as closing at 16:00 only delays
+    /// the roll to the new day by three hours, during which the historical lookup takes over.
+    static func lastCompletedCloseDay(_ now: Date, calendar: MarketCalendar = USMarketCalendar()) -> Date {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "America/New_York")!
+        let closedToday = calendar.isTradingDay(now) && cal.component(.hour, from: now) >= 16
+        var day = easternDay(now, offsetByDays: closedToday ? 0 : -1)
+        // Bounded: no market shuts for a whole week, so this walks back a few days at most.
+        while !calendar.isTradingDay(day) {
+            day = easternDay(day, offsetByDays: -1)
+        }
+        return day
+    }
+
     /// Floor an instant to ET midnight, so trading days compare by day rather than by clock.
     static func easternDay(_ date: Date) -> Date {
         var cal = Calendar(identifier: .gregorian)

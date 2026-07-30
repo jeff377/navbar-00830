@@ -91,7 +91,7 @@ public struct NasdaqProxySource: ProxySource {
         }
     }
 
-    static func parse(_ data: Data, symbol: ProxySymbol) throws -> ProxyQuote {
+    static func parse(_ data: Data, symbol: ProxySymbol, now: Date = Date()) throws -> ProxyQuote {
         let env: Envelope
         do { env = try JSONDecoder().decode(Envelope.self, from: data) }
         catch { throw SourceError.decoding("Nasdaq \(symbol.rawValue): \(error)") }
@@ -101,27 +101,53 @@ public struct NasdaqProxySource: ProxySource {
             throw SourceError.unavailable("Nasdaq \(symbol.rawValue): no primary price (symbol not listed?)")
         }
 
-        // `baseClose` here is only a provisional pairing — "the newest completed close" — which is
-        // the close the official NAV used ONLY while Taiwan is trading. The anchoring step replaces
-        // it with the close dated to `OfficialNAV.usCloseDate` before any math runs, so
-        // `baseCloseDate` is deliberately left nil: this endpoint cannot date its own close.
+        // `baseClose` here is "the newest completed regular close", which is the close the official
+        // NAV was struck against only some of the time — after a weekend or a Taiwan holiday the
+        // NAV is one or more sessions behind it. The anchoring step reconciles the two, replacing
+        // the base with the close dated to `OfficialNAV.usCloseDate` whenever they differ.
         //
-        // WARNING: do NOT date it from `lastTradeTimestamp`. That field is not the trading day of
-        // `lastSalePrice` — it rolls backwards on its own while the price stays put. Observed
-        // 2026-07-25: $527.01 (Friday 07/24's close, confirmed by netChange and the historical
-        // table) was stamped "Jul 24, 2026" at 21:13 ET Friday and "Jul 23, 2026" at 02:13 ET
-        // Saturday, on all three symbols. Trusting it made the revaluation flip between correct
-        // and wrong as the label moved. The historical table is the only dated source here.
-        let at = primary.lastTradeTimestamp.flatMap(Parse.nasdaqTimestamp) ?? Date()
+        // WARNING: do NOT date the base from `lastTradeTimestamp`. That field is not the trading
+        // day of `lastSalePrice` — it rolls backwards on its own while the price stays put.
+        // Observed 2026-07-25: $527.01 (Friday 07/24's close, confirmed by netChange and the
+        // historical table) was stamped "Jul 24, 2026" at 21:13 ET Friday and "Jul 23, 2026" at
+        // 02:13 ET Saturday, on all three symbols. Trusting it made the revaluation flip between
+        // correct and wrong as the label moved. The date comes from our own clock instead
+        // (`Parse.lastCompletedCloseDay`), which needs nothing from the payload.
+        let at = primary.lastTradeTimestamp.flatMap(Parse.nasdaqTimestamp) ?? now
         let status = (payload.marketStatus ?? "").lowercased()
 
-        // WARNING: Nasdaq swaps the roles of primaryData/secondaryData between sessions. While the
-        // regular session is Open *or* in Pre-Market, `primaryData` is a LIVE tick (not a close)
-        // and `secondaryData` — if present — holds the *previous regular close* ("Closed at …
-        // 4:00 PM ET"), the reverse of the after-hours layout. Reading secondaryData as "the newer
-        // price" in Pre-Market inverts the sign (a −4.6% pre-market read as +4.9%). So the
-        // live-tick cases must be decided first, and their base recovered from netChange —
-        // which equals the previous close in both.
+        // WARNING: Nasdaq swaps the roles of primaryData/secondaryData between sessions, so the
+        // slot a price sits in says nothing about what it is. Whenever a session is *live* — Open,
+        // Pre-Market or After-Hours — `primaryData` is the live tick and `secondaryData` carries the
+        // regular close it is measured against, labelled "Closed at … 4:00 PM ET". Once the day is
+        // fully over ("Closed") the layout inverts: `primaryData` becomes the regular close and
+        // `secondaryData`, if present, the retained post-market print. Reading the slots positionally
+        // inverted the sign in Pre-Market (a −4.6% read as +4.9%) and, in the live After-Hours
+        // window, handed back the regular close as the "latest" price — reapplying a drop the
+        // official NAV already contained. The "Closed at " label is what tells the layouts apart.
+        //
+        // Both prices are then taken as PRICES. Deriving the base from `netChange` gives the same
+        // number when it is present, but it is one more field that can disagree with the prices
+        // (Nasdaq's own `previousInfo` was observed a session stale on 2026-07-28), and it is absent
+        // in half the payloads. One basis for every phase: base close ÷ latest price.
+        // A live session names the close it is measured against ("Closed at … 4:00 PM ET"), and
+        // that close is by definition the newest completed one — so it can be dated from our own
+        // clock (`Parse.lastCompletedCloseDay`) without reading any Nasdaq label. Only here: once
+        // the day is fully Closed the payload's close side goes stale for hours (2026-07-29 20:57
+        // ET, SOXQ still served 07/28's $86.82 as its close, stamped "Jul 29, 2026", while its own
+        // post-market print was 07/29's), so those branches must keep going through the dated
+        // historical table instead of trusting the clock.
+        if let prior = payload.secondaryData, prior.lastTradeTimestamp?.hasPrefix("Closed at ") == true,
+           let priorStr = prior.lastSalePrice, let priorClose = Parse.decimal(priorStr) {
+            let session: ProxySession = status == "open" ? .regular
+                : (status.contains("pre") ? .preMarket : .afterHours)
+            return ProxyQuote(symbol: symbol, baseClose: priorClose,
+                              baseCloseDate: Parse.lastCompletedCloseDay(now),
+                              latestPrice: regular, latestAt: at, session: session)
+        }
+
+        // Open with no companion close: the live tick is all there is, so the previous close has to
+        // come from `netChange` (the anchoring step replaces it with the dated historical close).
         let isLiveTick = status == "open" || status.contains("pre-market") || status.contains("premarket")
         if isLiveTick, let chgStr = primary.netChange, let change = Parse.decimal(chgStr) {
             return ProxyQuote(symbol: symbol, baseClose: regular - change,
@@ -129,15 +155,17 @@ public struct NasdaqProxySource: ProxySource {
                               session: status == "open" ? .regular : .preMarket)
         }
 
-        // Post-market: `primary` is the completed regular close, `secondaryData` the newer print.
+        // Fully closed: `primary` is the completed regular close, `secondaryData` the retained print.
         if let extStr = payload.secondaryData?.lastSalePrice, let ext = Parse.decimal(extStr) {
             let extAt = payload.secondaryData?.lastTradeTimestamp.flatMap(Parse.nasdaqTimestamp) ?? at
-            return ProxyQuote(symbol: symbol, baseClose: regular, latestPrice: ext, latestAt: extAt, session: .afterHours)
+            return ProxyQuote(symbol: symbol, baseClose: regular,
+                              latestPrice: ext, latestAt: extAt, session: .afterHours)
         }
 
         // Closed, no extended data → frozen at the last completed regular close. fetchQuote may
         // top this up with the retained post-market close.
-        return ProxyQuote(symbol: symbol, baseClose: regular, latestPrice: regular, latestAt: at, session: .frozen)
+        return ProxyQuote(symbol: symbol, baseClose: regular,
+                          latestPrice: regular, latestAt: at, session: .frozen)
     }
 
     // MARK: - Extended-trading (retained post-market close)

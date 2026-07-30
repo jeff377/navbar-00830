@@ -70,16 +70,67 @@ public struct FallbackProxySource: Sendable {
         guard let anchor else { return [] }
         var result: [ProxyQuote] = []
         for quote in quotes {
+            // Already measured from the anchor day's own close — the live after-hours payload
+            // carries that close as a price, dated from our clock. Nothing to re-anchor to, and
+            // nothing the historical table could add: it does not publish the day's row until
+            // about an hour after the post-market session ends, so a lookup here would silently
+            // hand back the *previous* session's close and re-apply a move the NAV already has.
+            if quote.baseCloseDate == anchor {
+                result.append(quote)
+                continue
+            }
             if let base = await anchorCache.close(for: quote.symbol, at: anchor) {
                 result.append(quote.anchored(to: base))
                 continue
             }
             guard let source = sources.first(where: { $0.symbol == quote.symbol }),
                   let base = try? await source.regularClose(onOrBefore: anchor) else { continue }
-            await anchorCache.store(base, for: quote.symbol, at: anchor)
-            result.append(quote.anchored(to: base))
+            if Self.isTheAnchorsOwnClose(base, anchor: anchor) {
+                await anchorCache.store(base, for: quote.symbol, at: anchor)
+                result.append(quote.anchored(to: base))
+            } else if let rolled = Self.closeTheTableHasNotPublishedYet(quote, lastPublished: base, anchor: anchor) {
+                // Deliberately not cached: the table will carry the real row within the hour, and a
+                // cached stand-in would hold the app on it for the rest of the day.
+                result.append(rolled)
+            }
         }
         return result
+    }
+
+    /// Whether a historical close may stand as the anchor day's close.
+    ///
+    /// "On or before" is how a close is recovered when the anchor day had no US session — a US
+    /// holiday, or a Taiwan session that ran while Wall Street was shut. But it also silently
+    /// accepts a close from the session *before* the anchor when the anchor day did trade and its
+    /// row is merely not published yet: Nasdaq's historical table lags the close by roughly an hour
+    /// past the end of post-market, which covers the whole Taiwan pre-open. That reading applies a
+    /// move the official NAV already contains — a plausible-looking premium built on the wrong
+    /// session, which is worse than showing nothing (the caller keeps its last anchored set).
+    ///
+    /// NOTE: the US holiday table is maintained per year. An unlisted holiday would look like a
+    /// trading day here and the quote would be dropped — visibly missing rather than quietly wrong.
+    private static func isTheAnchorsOwnClose(_ base: DatedClose, anchor: Date,
+                                             calendar: MarketCalendar = USMarketCalendar()) -> Bool {
+        base.date >= anchor || !calendar.isTradingDay(anchor)
+    }
+
+    /// The anchor day's close taken from the quote itself, for the window where the historical
+    /// table has not published that day's row yet — or nil if the quote cannot supply it.
+    ///
+    /// The quote's own `baseClose` is "the newest completed regular close" as Nasdaq currently sees
+    /// it, which in this window is either the anchor day's close (the payload has rolled over) or
+    /// the previous session's (it has not) — and the payload's date labels cannot tell the two
+    /// apart. The prices can: if it still equals the last published close, nothing has rolled.
+    /// Observed 2026-07-29 21:00 ET, where the table stopped at 07/28 and, for the same anchor of
+    /// 07/29, SOXX offered $465.00 against a published $491.46 — a new close, usable — while SOXQ
+    /// offered $86.82, the published 07/28 close to the cent, and was dropped.
+    ///
+    /// NOTE: this assumes a session never closes at exactly the previous close. When it does, the
+    /// quote is dropped and the panel goes blank until the table publishes — the safe direction.
+    private static func closeTheTableHasNotPublishedYet(_ quote: ProxyQuote, lastPublished: DatedClose,
+                                                        anchor: Date) -> ProxyQuote? {
+        guard quote.baseClose != lastPublished.close else { return nil }
+        return quote.anchored(to: DatedClose(close: quote.baseClose, date: anchor))
     }
 
     /// The first successful quote in preference order, or `.allFailed` if none succeed.

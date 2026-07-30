@@ -53,7 +53,8 @@ final class SourceParsingTests: XCTestCase {
         // REGRESSION: in Pre-Market Nasdaq swaps the roles — primaryData is the live pre-market
         // tick (506.06, −4.61%) and secondaryData holds the *previous regular close* (530.50,
         // "Closed at … 4:00 PM ET"). Reading secondaryData as the newer price inverted the sign
-        // (−4.6% shown as +4.9%). base must come from netChange, not secondaryData.
+        // (−4.6% shown as +4.9%). The "Closed at " label is what identifies the close, and its
+        // price is taken as the base directly.
         let quote = try NasdaqProxySource.parse(fixtureData("nasdaq_soxx_premarket"), symbol: .soxx)
         XCTAssertEqual(quote.session, .preMarket)
         XCTAssertEqual(dbl(quote.baseClose), 530.50, accuracy: 0.0001)   // prior regular close
@@ -78,18 +79,59 @@ final class SourceParsingTests: XCTestCase {
         XCTAssertEqual(dbl(r.revaluedNAV), 87.73, accuracy: 0.001)
     }
 
-    func testQuoteEndpointNeverDatesItsOwnBase() throws {
+    func testBaseIsDatedFromOurClockNotFromTheQuotesOwnLabel() throws {
         // The quote payload carries a `lastTradeTimestamp`, and it is tempting to read it as the
         // trading day of `lastSalePrice`. It is not: observed 2026-07-25, $527.01 (Friday 07/24's
         // close) was stamped "Jul 24, 2026" at 21:13 ET Friday and "Jul 23, 2026" at 02:13 ET
         // Saturday — same price, date rolled back, on all three symbols. Anchoring off it made the
-        // revaluation flip between correct and wrong. The base is dated only by the historical
-        // table, so parse must leave it unset regardless of session.
-        for fixture in ["nasdaq_soxx_frozen", "nasdaq_soxx_afterhours", "nasdaq_soxx_open", "nasdaq_soxx_premarket"] {
-            let quote = try NasdaqProxySource.parse(fixtureData(fixture), symbol: .soxx)
+        // revaluation flip between correct and wrong.
+        //
+        // So a live payload — one that names its close, "Closed at … 4:00 PM ET" — is dated from
+        // our clock instead. Both fixtures carry July timestamps; parsed as of Wednesday
+        // 2026-08-12 20:00 ET they date the base to that day's close, leaking no July label.
+        let now = at(2026, 8, 12, 20, 0, tz: "America/New_York")
+        for fixture in ["nasdaq_soxx_premarket", "nasdaq_soxx_afterhours_live"] {
+            let quote = try NasdaqProxySource.parse(fixtureData(fixture), symbol: .soxx, now: now)
+            XCTAssertEqual(quote.baseCloseDate, etDay(2026, 8, 12), "\(fixture) must date its base from the clock")
+        }
+
+        // Everything else stays undated and must be anchored by the historical table. Once the day
+        // is fully Closed the payload's close side goes stale for hours — 2026-07-29 20:57 ET, SOXQ
+        // was still serving 07/28's $86.82 as its close, stamped "Jul 29, 2026", while its own
+        // post-market print had moved on to 07/29 — so the clock must not vouch for it either.
+        for fixture in ["nasdaq_soxx_frozen", "nasdaq_soxx_afterhours", "nasdaq_soxx_open"] {
+            let quote = try NasdaqProxySource.parse(fixtureData(fixture), symbol: .soxx, now: now)
             XCTAssertNil(quote.baseCloseDate, "\(fixture) must not date its own base")
             XCTAssertFalse(quote.isAnchored, "\(fixture) is not fit to revalue until anchored")
         }
+    }
+
+    func testBaseDayRollsAtTheCloseAndSkipsNonTradingDays() throws {
+        // Before 16:00 ET the newest completed close is the previous session's — which is exactly
+        // the base a pre-market or regular-session payload quotes against. From 16:00 it is today's.
+        XCTAssertEqual(Parse.lastCompletedCloseDay(at(2026, 7, 29, 8, 30, tz: "America/New_York")), etDay(2026, 7, 28))
+        XCTAssertEqual(Parse.lastCompletedCloseDay(at(2026, 7, 29, 16, 1, tz: "America/New_York")), etDay(2026, 7, 29))
+        // Weekend and holiday walk back to the last session: Saturday → Friday, and 2026-07-03
+        // (Independence Day observed) → Thursday 07/02.
+        XCTAssertEqual(Parse.lastCompletedCloseDay(at(2026, 7, 25, 22, 0, tz: "America/New_York")), etDay(2026, 7, 24))
+        XCTAssertEqual(Parse.lastCompletedCloseDay(at(2026, 7, 3, 20, 0, tz: "America/New_York")), etDay(2026, 7, 2))
+    }
+
+    func testLiveAfterHoursMeasuresFromTodaysCloseNotThePreviousOne() throws {
+        // REGRESSION (2026-07-30, Taiwan pre-open): while the after-hours session is live Nasdaq
+        // reports marketStatus "After-Hours" and lays the payload out like Pre-Market —
+        // primaryData is the 7:59 PM extended tick ($466.5966), secondaryData the close it is
+        // measured against ("Closed at Jul 29, 2026 4:00 PM ET", $465.00). Read positionally, the
+        // regular close came back as the "latest" price and the day's −5.38% drop was applied
+        // again on top of an official NAV (74.98, dated 07/29) that already contained it.
+        let now = at(2026, 7, 29, 20, 48, tz: "America/New_York")
+        let quote = try NasdaqProxySource.parse(fixtureData("nasdaq_soxx_afterhours_live"), symbol: .soxx, now: now)
+        XCTAssertEqual(quote.session, .afterHours)
+        XCTAssertEqual(dbl(quote.baseClose), 465.00, accuracy: 0.0001)      // today's regular close
+        XCTAssertEqual(dbl(quote.latestPrice), 466.5966, accuracy: 0.0001)  // the newest print
+        XCTAssertEqual(dbl(NAVCalculator.proxyReturn(quote)), 0.0034, accuracy: 0.0002) // Nasdaq +0.34%
+        // Dated from our clock: the close a live after-hours session hangs off is today's 16:00 ET.
+        XCTAssertEqual(quote.baseCloseDate, etDay(2026, 7, 29))
     }
 
     func testHistoricalPicksLastCloseOnOrBeforeCutoff() throws {

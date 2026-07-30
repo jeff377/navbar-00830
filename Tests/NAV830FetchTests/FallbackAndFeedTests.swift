@@ -82,6 +82,53 @@ final class FallbackProxySourceTests: XCTestCase {
         XCTAssertTrue(out.isEmpty)
     }
 
+    func testQuoteAlreadyTiedToTheAnchorDayNeedsNoHistoryLookup() async {
+        // REGRESSION (2026-07-30): during the live after-hours session the payload already carries
+        // the anchor day's own close, dated. The historical table does not publish that day's row
+        // until roughly an hour after the post-market session ends, so looking it up anyway landed
+        // on the *previous* close and re-applied a session the NAV had already absorbed. `history:
+        // nil` here means any lookup fails — the quote must survive without one.
+        let live = ProxyQuote(symbol: .soxx, baseClose: dec("465.00"), baseCloseDate: etDay(2026, 7, 29),
+                              latestPrice: dec("466.5966"), latestAt: Date(), session: .afterHours)
+        let out = await FallbackProxySource([StubProxySource(symbol: .soxx, outcome: .success(live), history: nil)])
+            .anchoredQuotes([live], toNAVClose: etDay(2026, 7, 29))
+        XCTAssertEqual(dbl(out[0].baseClose), 465.00, accuracy: 0.0001)
+        XCTAssertEqual(dbl(NAVCalculator.proxyReturn(out[0])), 0.0034, accuracy: 0.0002)
+    }
+
+    func testDropsQuoteWhenTheAnchorDaysCloseIsNotPublishedYet() async {
+        // REGRESSION (2026-07-30): Nasdaq's historical table does not carry the day's row until
+        // roughly an hour after post-market ends — the whole Taiwan pre-open. "On or before" then
+        // hands back the *previous* session's close, which reapplies a move the official NAV
+        // already holds (SOXQ: 07/28's 86.82 against 07/29's post print, −4.57% out of nothing).
+        // Wednesday 2026-07-29 is a trading day, so a 07/28 close cannot be its close. The quote's
+        // own base is 527.01 here — matching the published row to the cent, i.e. Nasdaq has not
+        // rolled over either — so there is nothing to fall back on: drop.
+        let out = await fb(history: DatedClose(close: dec("527.01"), date: etDay(2026, 7, 28)))
+            .anchoredQuotes([fridayQuote()], toNAVClose: etDay(2026, 7, 29))
+        XCTAssertTrue(out.isEmpty)
+    }
+
+    func testUsesTheQuotesOwnCloseWhileTheTableCatchesUp() async {
+        // Same window, but the quote has rolled: its base (527.01) differs from the last published
+        // close (491.46), so it is the anchor day's close and the estimate stays live through the
+        // Taiwan pre-open instead of blanking for an hour. This is the SOXX side of 2026-07-29
+        // 21:00 ET; SOXQ, still quoting the published close, is the case above.
+        let out = await fb(history: DatedClose(close: dec("491.46"), date: etDay(2026, 7, 28)))
+            .anchoredQuotes([fridayQuote()], toNAVClose: etDay(2026, 7, 29))
+        XCTAssertEqual(dbl(out[0].baseClose), 527.01, accuracy: 0.0001)
+        XCTAssertEqual(out[0].baseCloseDate, etDay(2026, 7, 29))
+    }
+
+    func testKeepsTheEarlierCloseWhenTheAnchorDayHadNoUSSession() async {
+        // The same "older than the anchor" shape is legitimate when Wall Street was shut that day:
+        // 2026-07-03 is Independence Day (observed) and Taiwan traded, so the NAV was struck
+        // against Thursday 07/02's close. That must anchor, not drop.
+        let out = await fb(history: DatedClose(close: dec("551.24"), date: etDay(2026, 7, 2)))
+            .anchoredQuotes([fridayQuote()], toNAVClose: etDay(2026, 7, 3))
+        XCTAssertEqual(dbl(out[0].baseClose), 551.24, accuracy: 0.0001)
+    }
+
     func testDropsQuoteWhenTheNAVHasNoAnchorDate() async {
         let out = await fb(history: DatedClose(close: dec("551.24"), date: etDay(2026, 7, 23)))
             .anchoredQuotes([fridayQuote()], toNAVClose: nil)
