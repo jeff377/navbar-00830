@@ -69,16 +69,14 @@ public struct DataFeed: Sendable {
     }
 
     /// Convenience wiring for the live app: Cathay official NAV + TWSE MIS market price +
-    /// Nasdaq SOXX/SOXQ/SOXL.
+    /// Nasdaq SOX/SOXQ/SOXX/SOXL.
     public static func live(client: HTTPClient = URLSessionHTTPClient()) -> DataFeed {
         DataFeed(
             cathay: CathayETFSource(client: client),
             price: TWSEMISPriceSource(client: client),
-            proxies: FallbackProxySource([
-                NasdaqProxySource(symbol: .soxx, client: client),
-                NasdaqProxySource(symbol: .soxq, client: client),
-                NasdaqProxySource(symbol: .soxl, client: client)
-            ])
+            proxies: FallbackProxySource(ProxySymbol.preferenceOrder.map {
+                NasdaqProxySource(symbol: $0, client: client)
+            })
         )
     }
 

@@ -60,25 +60,69 @@ final class NAVCalculatorTests: XCTestCase {
         XCTAssertEqual(dbl(fx.factor), 32.0 / 32.32, accuracy: 1e-6)
     }
 
-    // MARK: - Cross-check panel
+    // MARK: - Primary selection & cross-check panel
 
-    func testReportPicksSOXXAsPrimaryAndKeepsCrossChecks() {
+    func testLiveIndexLeadsOverEveryETF() {
+        // During the US regular session SOX is the faithful proxy — it *is* 00830's benchmark,
+        // while SOXX tracks ICE Semiconductor and SOXL the NYSE Semiconductor Index. Measured
+        // 2026-08-05 12:05 ET the two baskets read −0.47% and −1.30% off the same anchor, so
+        // which one leads is worth ~0.7 TWD of revalued NAV, not a rounding difference.
         let report = NAVCalculator.report(
             officialNAV: Fixtures.officialNAV,
-            proxies: [proxy(.soxq, base: "30.00", latest: "29.70"), Fixtures.soxx],
+            proxies: [Fixtures.soxx,
+                      proxy(.soxq, base: "30.00", latest: "29.70", session: .regular),
+                      proxy(.sox, base: "12179.26", latest: "12121.68", session: .regular)],
             fx: Fixtures.noFX, marketPrice: Fixtures.price
         )
-        XCTAssertEqual(report?.primary.proxy, .soxx)
-        XCTAssertEqual(report?.crossChecks.count, 2)
+        XCTAssertEqual(report?.primary.proxy, .sox)
+        XCTAssertEqual(dbl(report?.primary.proxyReturn ?? 0), -0.00473, accuracy: 0.0001)
+        XCTAssertEqual(report?.crossChecks.count, 3, "every proxy stays on the cross-check panel")
     }
 
-    func testReportDegradesWhenPrimaryMissing() {
+    func testFrozenIndexStepsAsideForAnETFWithAnAfterHoursMove() {
+        // REGRESSION GUARD: the index is only calculated 09:30–16:00 ET, so once the session ends
+        // its quote is the standing close and reports a flat move. Letting it lead anyway would
+        // throw away the after-hours increment the ETFs carry — which is the entire reason the
+        // tool exists during the Taiwan session. SOXQ leads instead; SOX stays a cross-check.
         let report = NAVCalculator.report(
             officialNAV: Fixtures.officialNAV,
-            proxies: [proxy(.soxq, base: "30.00", latest: "29.70")],
+            proxies: [proxy(.sox, base: "12179.26", latest: "12179.26", session: .frozen),
+                      proxy(.soxq, base: "30.00", latest: "29.70", session: .afterHours)],
             fx: Fixtures.noFX, marketPrice: Fixtures.price
         )
         XCTAssertEqual(report?.primary.proxy, .soxq)
+        XCTAssertEqual(report?.crossChecks.count, 2)
+    }
+
+    func testAmongETFsTheSameIndexTrackerLeads() {
+        // Outside the regular session SOXQ leads because it tracks PHLX SOX like 00830 does;
+        // SOXX and SOXL are the liquidity fallbacks, not equals.
+        let report = NAVCalculator.report(
+            officialNAV: Fixtures.officialNAV,
+            proxies: [Fixtures.soxx, proxy(.soxq, base: "30.00", latest: "29.70")],
+            fx: Fixtures.noFX, marketPrice: Fixtures.price
+        )
+        XCTAssertEqual(report?.primary.proxy, .soxq)
+    }
+
+    func testReportDegradesWhenPreferredProxiesMissing() {
+        let report = NAVCalculator.report(
+            officialNAV: Fixtures.officialNAV,
+            proxies: [proxy(.soxl, base: "30.00", latest: "29.145")],
+            fx: Fixtures.noFX, marketPrice: Fixtures.price
+        )
+        XCTAssertEqual(report?.primary.proxy, .soxl)
+    }
+
+    func testFrozenIndexAloneStillLeadsRatherThanBlanking() {
+        // Nothing else survived the fetch. A flat move measured from the right close beats no
+        // figure at all, so the ineligibility rule must be a preference tiebreak, not a filter.
+        let report = NAVCalculator.report(
+            officialNAV: Fixtures.officialNAV,
+            proxies: [proxy(.sox, base: "12179.26", latest: "12121.68", session: .frozen)],
+            fx: Fixtures.noFX, marketPrice: Fixtures.price
+        )
+        XCTAssertEqual(report?.primary.proxy, .sox)
     }
 
     func testReportNilWhenNoProxies() {

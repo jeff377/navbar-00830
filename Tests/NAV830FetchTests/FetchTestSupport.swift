@@ -29,6 +29,39 @@ struct StubHTTPClient: HTTPClient {
     }
 }
 
+/// Records what a `StubHTTPClient` was asked for. Lock-backed rather than an actor because the
+/// routing closure is synchronous.
+final class URLRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var seen: [String] = []
+
+    func record(_ url: URL) {
+        lock.lock(); defer { lock.unlock() }
+        seen.append(url.absoluteString)
+    }
+
+    var urls: [String] {
+        lock.lock(); defer { lock.unlock() }
+        return seen
+    }
+}
+
+/// Counts calls from inside a synchronous routing closure.
+final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func bump() {
+        lock.lock(); defer { lock.unlock() }
+        count += 1
+    }
+
+    var value: Int {
+        lock.lock(); defer { lock.unlock() }
+        return count
+    }
+}
+
 /// A proxy source with a canned outcome, for fallback tests.
 struct StubProxySource: ProxySource {
     let symbol: ProxySymbol

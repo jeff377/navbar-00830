@@ -8,10 +8,11 @@ import NAV830Core
 /// 2026-07-29 after-hours mismatch was pinned down — so the panel links straight to them.
 public enum SourcePage {
 
-    /// Nasdaq's quote page for a proxy ETF: the regular close and the after-hours print, the two
-    /// numbers the revaluation is built from.
+    /// Nasdaq's quote page for a proxy: the regular close and the after-hours print, the two
+    /// numbers the revaluation is built from. Indices live under a different path segment than
+    /// ETFs, matching the `assetclass` split on the API side.
     public static func nasdaq(_ symbol: ProxySymbol) -> URL {
-        URL(string: "https://www.nasdaq.com/market-activity/etf/\(symbol.rawValue.lowercased())")!
+        URL(string: "https://www.nasdaq.com/market-activity/\(symbol.assetClass)/\(symbol.rawValue.lowercased())")!
     }
 
     /// 國泰投信「ETF 即時預估淨值」— the 00830 row here is the 預估淨值 the app consumes.

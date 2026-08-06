@@ -1,0 +1,45 @@
+{
+    "data": {
+        "symbol": "SOX",
+        "companyName": "PHLX Semiconductor Sector",
+        "stockType": "",
+        "exchange": "Index",
+        "isNasdaqListed": false,
+        "isNasdaq100": false,
+        "isHeld": false,
+        "primaryData": {
+            "lastSalePrice": "12,900.14",
+            "netChange": "273.92",
+            "percentageChange": "2.17%",
+            "deltaIndicator": "up",
+            "lastTradeTimestamp": "Jul 6, 2026",
+            "isRealTime": false,
+            "bidPrice": "",
+            "askPrice": "",
+            "bidSize": "",
+            "askSize": "",
+            "volume": "",
+            "currency": null
+        },
+        "secondaryData": null,
+        "marketStatus": "Closed",
+        "assetClass": "INDEX",
+        "keyStats": {
+            "previousclose": {
+                "label": "Previous Close:",
+                "value": "12,626.22"
+            },
+            "dayrange": {
+                "label": "Day Range:",
+                "value": "12,626.22 - 12,955.31"
+            }
+        },
+        "notifications": null
+    },
+    "message": null,
+    "status": {
+        "rCode": 200,
+        "bCodeMessage": null,
+        "developerMessage": null
+    }
+}

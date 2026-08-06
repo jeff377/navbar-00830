@@ -1,7 +1,12 @@
 import Foundation
 import NAV830Core
 
-/// Proxy ETF quote from Nasdaq's public quote endpoint.
+/// Proxy quote from Nasdaq's public quote endpoint, for an ETF or for the SOX index itself.
+///
+/// The index is served by the same endpoints under `assetclass=index`, with the same payload and
+/// the same historical table, so everything below applies to it unchanged — except that it has no
+/// extended-hours session, so the `extended-trading` top-up is skipped and it simply reads frozen
+/// once the regular session ends.
 ///
 /// `primaryData` is the regular session, `secondaryData` the extended (pre/post-market) session.
 /// We produce a phase-agnostic (baseClose, latestPrice) pair so the revaluation works whenever
@@ -29,13 +34,15 @@ public struct NasdaqProxySource: ProxySource {
     }
 
     public func fetchQuote() async throws -> ProxyQuote {
-        let url = URL(string: "https://api.nasdaq.com/api/quote/\(symbol.rawValue)/info?assetclass=etf")!
+        let url = URL(string: "https://api.nasdaq.com/api/quote/\(symbol.rawValue)/info?assetclass=\(symbol.assetClass)")!
         let quote = try Self.parse(await client.get(url, headers: headers), symbol: symbol)
 
         // Frozen (post-market over): recover the retained post-market close and apply it on top of
         // the regular close, so the Taiwan-session estimate reflects the after-hours move.
-        guard quote.session == .frozen else { return quote }
-        let extURL = URL(string: "https://api.nasdaq.com/api/quote/\(symbol.rawValue)/extended-trading?assetclass=etf&markettype=post&marketMode=1")!
+        // An index has no post-market to recover — it stays frozen at its close, and the report
+        // hands the lead to an ETF for as long as that is true.
+        guard quote.session == .frozen, symbol.hasExtendedHours else { return quote }
+        let extURL = URL(string: "https://api.nasdaq.com/api/quote/\(symbol.rawValue)/extended-trading?assetclass=\(symbol.assetClass)&markettype=post&marketMode=1")!
         guard let extData = try? await client.get(extURL, headers: headers),
               let post = Self.parseExtendedPost(extData),
               isPlausible(post, base: quote.baseClose) else {
@@ -59,7 +66,7 @@ public struct NasdaqProxySource: ProxySource {
     public func regularClose(onOrBefore date: Date) async throws -> DatedClose {
         let from = Parse.easternDay(date, offsetByDays: -14)
         let through = Parse.easternDay(date, offsetByDays: 1)
-        let url = URL(string: "https://api.nasdaq.com/api/quote/\(symbol.rawValue)/historical?assetclass=etf&fromdate=\(Self.isoDay(from))&todate=\(Self.isoDay(through))&limit=30")!
+        let url = URL(string: "https://api.nasdaq.com/api/quote/\(symbol.rawValue)/historical?assetclass=\(symbol.assetClass)&fromdate=\(Self.isoDay(from))&todate=\(Self.isoDay(through))&limit=30")!
         guard let match = Self.parseHistorical(try await client.get(url, headers: headers), onOrBefore: date) else {
             throw SourceError.unavailable("Nasdaq \(symbol.rawValue): no regular close on or before \(Self.isoDay(date))")
         }
@@ -146,10 +153,20 @@ public struct NasdaqProxySource: ProxySource {
                               latestPrice: regular, latestAt: at, session: session)
         }
 
-        // Open with no companion close: the live tick is all there is, so the previous close has to
-        // come from `netChange` (the anchoring step replaces it with the dated historical close).
+        // Open with no companion close: the live tick is all there is, so the previous close is
+        // seeded from `netChange` — a placeholder either way, since a quote dated nil is always
+        // re-anchored to the dated historical close (and dropped if that fails).
+        //
+        // WARNING: a live status must return HERE, whether or not `netChange` parses. Nasdaq
+        // sometimes empties that field on a near-flat tick, and falling through then reaches the
+        // frozen branch, which tops the quote up from `extended-trading` — an endpoint that during
+        // the regular session still serves the PREVIOUS day's post-market print and openly says so
+        // ("Data last updated Aug 4, 2026 08:00 PM ET"). Observed live 2026-08-05 12:29 ET: SOXQ,
+        // Open and trading at $95.96, was reported as `.afterHours` at $95.67 — yesterday's 20:00
+        // print — pairing a stale price against today's anchor. Session first, fields second.
         let isLiveTick = status == "open" || status.contains("pre-market") || status.contains("premarket")
-        if isLiveTick, let chgStr = primary.netChange, let change = Parse.decimal(chgStr) {
+        if isLiveTick {
+            let change = primary.netChange.flatMap(Parse.decimal) ?? 0
             return ProxyQuote(symbol: symbol, baseClose: regular - change,
                               latestPrice: regular, latestAt: at,
                               session: status == "open" ? .regular : .preMarket)

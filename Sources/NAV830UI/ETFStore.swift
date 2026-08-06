@@ -71,11 +71,9 @@ public final class ETFStore: ObservableObject {
         #endif
         self.cathaySource = CathayETFSource(client: client)
         self.priceSource = TWSEMISPriceSource(client: client)
-        self.proxySource = FallbackProxySource([
-            NasdaqProxySource(symbol: .soxx, client: client),
-            NasdaqProxySource(symbol: .soxq, client: client),
-            NasdaqProxySource(symbol: .soxl, client: client)
-        ])
+        self.proxySource = FallbackProxySource(ProxySymbol.preferenceOrder.map {
+            NasdaqProxySource(symbol: $0, client: client)
+        })
     }
 
     // MARK: - Lifecycle
@@ -235,17 +233,22 @@ public final class ETFStore: ObservableObject {
     /// verified regardless of the current market phase. Enabled via NAV830_DEMO=1.
     public func loadDemo() {
         let navFix = OfficialNAV(value: Decimal(string: "91.68")!, navDate: Date(), source: "demo", fetchedAt: Date())
+        // A Taiwan-session picture: the US day is over, so the index sits frozen at its close and
+        // the ETFs carry the after-hours move. SOXQ therefore leads, not SOX — the demo shows the
+        // hand-off as well as the numbers.
+        let sox = ProxyQuote(symbol: .sox, baseClose: Decimal(string: "12179.26")!, latestPrice: Decimal(string: "12179.26")!, latestAt: Date(), session: .frozen)
         let soxx = ProxyQuote(symbol: .soxx, baseClose: Decimal(string: "581.51")!, latestPrice: Decimal(string: "576.00")!, latestAt: Date(), session: .afterHours)
         let soxq = ProxyQuote(symbol: .soxq, baseClose: Decimal(string: "95.00")!, latestPrice: Decimal(string: "94.10")!, latestAt: Date(), session: .afterHours)
         // Illustrative discount deep enough to trip the default 3% threshold, so the menu-bar
         // label renders in the alert color (verifies SwiftUI colours menu-bar text at all).
         // The appendix-accurate −1.0% case is covered by the Core unit tests.
         let priceFix = MarketPrice(price: Decimal(string: "87.50")!, timestamp: Date(), source: "demo")
-        nav = navFix; quotes = [soxx, soxq]; price = priceFix
+        nav = navFix; quotes = [sox, soxq, soxx]; price = priceFix
         statuses = [
             SourceStatus(name: "Cathay 淨值/市價", ok: true, page: SourcePage.cathayEstimate),
-            SourceStatus(name: "Nasdaq SOXX", ok: true, page: SourcePage.nasdaq(.soxx)),
+            SourceStatus(name: "Nasdaq SOX", ok: true, page: SourcePage.nasdaq(.sox)),
             SourceStatus(name: "Nasdaq SOXQ", ok: true, page: SourcePage.nasdaq(.soxq)),
+            SourceStatus(name: "Nasdaq SOXX", ok: true, page: SourcePage.nasdaq(.soxx)),
             SourceStatus(name: "Nasdaq SOXL", ok: false, page: SourcePage.nasdaq(.soxl))
         ]
         lastMarketFetch = Date()

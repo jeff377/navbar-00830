@@ -35,20 +35,28 @@ public enum NAVCalculator {
                            baseCloseDate: proxy.baseCloseDate, fxFactor: factor, revaluedNAV: nav)
     }
 
-    /// Build the full report: SOXX as the primary value, the others as cross-checks.
+    /// Build the full report: the best available proxy sets the headline value, the rest are
+    /// cross-checks.
     ///
-    /// The `primary` proxy defaults to SOXX (PLAN §2.3). If it is missing from `proxies`
-    /// the first available proxy is used instead, so the app degrades rather than fails.
+    /// `preference` is consulted in order and the first *eligible* match wins — eligibility being
+    /// `Revaluation.canLeadReport`, which keeps the index from leading outside the regular session
+    /// where it would report a flat move. If nothing in the preference list is present the first
+    /// eligible proxy leads, and failing even that the first proxy at all, so the app degrades
+    /// rather than fails.
     public static func report(
         officialNAV: OfficialNAV,
         proxies: [ProxyQuote],
         fx: FXRate,
         marketPrice: MarketPrice,
-        primary primarySymbol: ProxySymbol = .soxx
+        preferring preference: [ProxySymbol] = ProxySymbol.preferenceOrder
     ) -> RevaluationReport? {
         guard !proxies.isEmpty else { return nil }
         let revaluations = proxies.map { revalue(officialNAV: officialNAV, proxy: $0, fx: fx) }
-        let primary = revaluations.first { $0.proxy == primarySymbol } ?? revaluations[0]
+        let primary = preference.lazy
+            .compactMap { symbol in revaluations.first { $0.proxy == symbol && $0.canLeadReport } }
+            .first
+            ?? revaluations.first { $0.canLeadReport }
+            ?? revaluations[0]
         let prem = premium(marketPrice: marketPrice.price, revaluedNAV: primary.revaluedNAV)
         return RevaluationReport(primary: primary, crossChecks: revaluations, premium: prem, marketPrice: marketPrice)
     }

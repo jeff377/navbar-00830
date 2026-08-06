@@ -158,19 +158,24 @@ final class FallbackProxySourceTests: XCTestCase {
 /// app, but with the network stubbed by fixtures.
 final class DataFeedTests: XCTestCase {
 
+    /// One coherent moment: 2026-07-07 10:00 Taipei — the Taiwan session, with the US day long
+    /// over. Every proxy therefore serves the shape it really would then: the ETFs their retained
+    /// post-market print, the index its standing 07/06 close, since it stops calculating at 16:00 ET.
     private func stubClient() -> StubHTTPClient {
         StubHTTPClient { url in
             let s = url.absoluteString
             if s.contains("mis.twse.com.tw") { return fixtureData("twse_mis_00830") }
             if s.contains("cwapi.cathaysite.com.tw") { return fixtureData("cathay_navlist") }
-            // Anchor lookup: cathay_navlist is dated 2026/07/06, whose close (581.51) the SOXX
-            // after-hours fixture also carries — so anchoring is a no-op here and the expected
-            // numbers below are the pure post-market move.
-            if s.contains("historical") { return fixtureData("nasdaq_soxx_historical_july06") }
+            // Anchor lookup: cathay_navlist is dated 2026/07/06, whose close each July-6 table also
+            // carries — so anchoring is a no-op here and the expected numbers below are the pure
+            // post-market move.
+            if s.contains("historical") {
+                return fixtureData(s.contains("/SOX/") ? "nasdaq_sox_historical_july06"
+                                                       : "nasdaq_soxx_historical_july06")
+            }
             if s.contains("api.nasdaq.com") {
-                // SOXX serves the frozen after-hours shape; SOXQ/SOXL serve the regular-session
-                // (market-open) shape — both now parse, exercising both pairing paths at once.
-                return s.contains("/SOXX/") ? fixtureData("nasdaq_soxx_afterhours") : fixtureData("nasdaq_soxx_open")
+                return s.contains("/SOX/") ? fixtureData("nasdaq_sox_closed")
+                                           : fixtureData("nasdaq_soxx_afterhours")
             }
             return nil
         }
@@ -180,11 +185,9 @@ final class DataFeedTests: XCTestCase {
         DataFeed(
             cathay: CathayETFSource(client: client),
             price: TWSEMISPriceSource(client: client),
-            proxies: FallbackProxySource([
-                NasdaqProxySource(symbol: .soxx, client: client),
-                NasdaqProxySource(symbol: .soxq, client: client),
-                NasdaqProxySource(symbol: .soxl, client: client)
-            ]),
+            proxies: FallbackProxySource(ProxySymbol.preferenceOrder.map {
+                NasdaqProxySource(symbol: $0, client: client)
+            }),
             now: { at(2026, 7, 7, 10, 0, tz: "Asia/Taipei") }
         )
     }
@@ -194,15 +197,24 @@ final class DataFeedTests: XCTestCase {
 
         XCTAssertEqual(snap.phase, .taiwanTrading)
         XCTAssertNotNil(snap.report, "essential inputs present ⇒ report built")
-        XCTAssertEqual(snap.report?.primary.proxy, .soxx)
+        // SOXQ leads, not SOX: the index is the preferred proxy but has nothing to say outside the
+        // regular session, and not stepping aside here would discard the post-market move — the one
+        // increment the official NAV lacks during the Taiwan session.
+        XCTAssertEqual(snap.report?.primary.proxy, .soxq)
         XCTAssertEqual(snap.report?.primary.session, .afterHours)
         // Base = official estimateNav 91.94 × (576/581.51) ≈ 91.07; TWSE price 89.70 ⇒ ≈ −1.5% discount.
         XCTAssertEqual(dbl(snap.report!.primary.revaluedNAV), 91.07, accuracy: 0.05)
         XCTAssertLessThan(snap.report!.premium, 0)
         XCTAssertEqual(dbl(snap.report!.premium), -0.015, accuracy: 0.004)
 
+        // The index still anchors and still shows — as a flat cross-check, measured from 07/06.
+        let sox = snap.report?.crossChecks.first { $0.proxy == .sox }
+        XCTAssertEqual(sox?.baseCloseDate, etDay(2026, 7, 6))
+        XCTAssertEqual(dbl(sox?.proxyReturn ?? 1), 0, accuracy: 1e-9)
+
+        XCTAssertEqual(snap.statuses.first { $0.name == "Nasdaq SOX" }?.ok, true)
         XCTAssertEqual(snap.statuses.first { $0.name == "Nasdaq SOXX" }?.ok, true)
-        XCTAssertEqual(snap.report?.crossChecks.count, 3)
+        XCTAssertEqual(snap.report?.crossChecks.count, 4)
         XCTAssertEqual(snap.statuses.first { $0.name == "Cathay 官方淨值" }?.ok, true)
         XCTAssertEqual(snap.statuses.first { $0.name == "TWSE 市價" }?.ok, true)
     }

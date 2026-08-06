@@ -227,6 +227,97 @@ final class SourceParsingTests: XCTestCase {
         XCTAssertEqual(dbl(NAVCalculator.proxyReturn(quote)), -0.0646, accuracy: 0.0002) // matches Nasdaq −6.46%
     }
 
+    func testOpenSessionNeverReachesForARetainedPostMarketPrint() async throws {
+        // REGRESSION (2026-08-05, caught by the live smoke test): Nasdaq emptied SOXQ's `netChange`
+        // on a near-flat tick while marketStatus was still "Open". The parser fell past the
+        // live-tick branch to frozen, and `fetchQuote` then topped that up from `extended-trading`
+        // — which mid-session still serves the PREVIOUS day's 20:00 print. SOXQ, trading at $95.96,
+        // was published as `.afterHours` at $95.67 and paired against today's anchor. A live status
+        // must settle the session before any field is consulted.
+        let client = StubHTTPClient { url in
+            let s = url.absoluteString
+            if s.contains("extended-trading") { return fixtureData("nasdaq_soxx_extended_post") }
+            return s.contains("/info") ? fixtureData("nasdaq_soxq_open_no_netchange") : nil
+        }
+        let quote = try await NasdaqProxySource(symbol: .soxq, client: client).fetchQuote()
+        XCTAssertEqual(quote.session, .regular)
+        XCTAssertEqual(dbl(quote.latestPrice), 95.86, accuracy: 0.0001, "the live tick, not a retained print")
+        // Base is only a seed here — the quote is undated, so anchoring must replace it.
+        XCTAssertNil(quote.baseCloseDate)
+    }
+
+    // MARK: - SOX index (assetclass=index)
+
+    func testIndexLiveQuoteParsesThousandsSeparatedLevel() throws {
+        // Recorded live 2026-08-05 12:25 ET. The index payload is the plain Open shape — no
+        // secondaryData — so it takes the netChange branch, and the level carries a thousands
+        // separator the ETF prices never do: 12,166.77 − (−12.49) = 12,179.26, which is exactly
+        // the `keyStats.previousclose` the same payload reports.
+        let quote = try NasdaqProxySource.parse(fixtureData("nasdaq_sox_open"), symbol: .sox)
+        XCTAssertEqual(quote.session, .regular)
+        XCTAssertEqual(dbl(quote.baseClose), 12179.26, accuracy: 0.0001)
+        XCTAssertEqual(dbl(quote.latestPrice), 12166.77, accuracy: 0.0001)
+        XCTAssertEqual(dbl(NAVCalculator.proxyReturn(quote)), -0.001026, accuracy: 0.00005) // Nasdaq −0.10%
+    }
+
+    func testIndexIsNeverAskedForAnAfterHoursPrice() async throws {
+        // The index has no extended session, so `fetchQuote` must not call `extended-trading` for
+        // it. If it did, the endpoint would either 404 or — worse — answer for some unrelated
+        // symbol, and the plausibility guard would let a small enough number through as a
+        // post-market move the index never had. The Closed payload is synthetic (a live capture is
+        // only possible outside US market hours) but carries SOX's real 07/06 close, matching the
+        // other July-6 fixtures.
+        let extendedCalls = Counter()
+        let client = StubHTTPClient { url in
+            let s = url.absoluteString
+            if s.contains("extended-trading") { extendedCalls.bump(); return nil }
+            return s.contains("/info") ? fixtureData("nasdaq_sox_closed") : nil
+        }
+        let quote = try await NasdaqProxySource(symbol: .sox, client: client).fetchQuote()
+        XCTAssertEqual(extendedCalls.value, 0, "the index must not be asked for a post-market print")
+        XCTAssertEqual(quote.session, .frozen)
+        XCTAssertEqual(dbl(quote.baseClose), 12900.14, accuracy: 0.0001)
+        XCTAssertEqual(dbl(NAVCalculator.proxyReturn(quote)), 0, accuracy: 1e-9)
+    }
+
+    func testIndexRequestsUseTheIndexAssetClass() async throws {
+        // `assetclass=etf` returns "Symbol not exists." for SOX, so both endpoints have to switch
+        // on the symbol. Asserted on the URLs because the failure is a 400 with a well-formed
+        // envelope — it would surface as a plain "unavailable", not as a parse error.
+        let seen = URLRecorder()
+        let client = StubHTTPClient { url in
+            seen.record(url)
+            return url.absoluteString.contains("historical")
+                ? fixtureData("nasdaq_sox_historical") : fixtureData("nasdaq_sox_open")
+        }
+        let source = NasdaqProxySource(symbol: .sox, client: client)
+        _ = try await source.fetchQuote()
+        _ = try await source.regularClose(onOrBefore: etDay(2026, 8, 4))
+        XCTAssertEqual(seen.urls.count, 2)
+        for url in seen.urls {
+            XCTAssertTrue(url.contains("assetclass=index"), "expected assetclass=index in \(url)")
+        }
+    }
+
+    func testIndexHistoricalTableParsesLikeTheETFOne() async throws {
+        // Same envelope, same date format — the anchoring machinery (todate exclusivity, "on or
+        // before") needs no index-specific path.
+        let client = StubHTTPClient { url in
+            url.absoluteString.contains("historical") ? fixtureData("nasdaq_sox_historical") : nil
+        }
+        let close = try await NasdaqProxySource(symbol: .sox, client: client)
+            .regularClose(onOrBefore: etDay(2026, 8, 4))
+        XCTAssertEqual(close.date, etDay(2026, 8, 4))
+        XCTAssertEqual(dbl(close.close), 12179.26, accuracy: 0.0001)
+        // A level in the thousands must survive the historical parser's comma stripping too.
+        XCTAssertGreaterThan(close.close, 1000)
+    }
+
+    func testIndexSourcePageIsTheIndexPath() {
+        XCTAssertEqual(SourcePage.nasdaq(.sox).absoluteString, "https://www.nasdaq.com/market-activity/index/sox")
+        XCTAssertEqual(SourcePage.nasdaq(.soxq).absoluteString, "https://www.nasdaq.com/market-activity/etf/soxq")
+    }
+
     func testCathayETFSelects00830NAV() throws {
         // Official NAV from the Cathay record (price now comes from TWSE MIS).
         let etf = try CathayETFSource.parse(fixtureData("cathay_navlist"), stockCode: "00830", now: Date())

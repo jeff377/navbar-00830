@@ -16,6 +16,17 @@ public struct Revaluation: Sendable, Equatable {
     /// Re-estimated intraday NAV in TWD.
     public let revaluedNAV: Decimal
 
+    /// Whether this revaluation may carry the headline figure.
+    ///
+    /// The index is only calculated during the regular session. Outside it its quote is the
+    /// standing close, so the move it reports stops at 16:00 ET — while the ETFs' pre/post-market
+    /// prints carry exactly the increment the official NAV still lacks, which is the whole point
+    /// of the tool during the Taiwan session. So SOX leads while it is live and steps aside when
+    /// it is not; every ETF is always eligible.
+    public var canLeadReport: Bool {
+        proxy.hasExtendedHours || session == .regular
+    }
+
     public init(proxy: ProxySymbol, proxyReturn: Decimal, session: ProxySession, baseCloseDate: Date? = nil, fxFactor: Decimal, revaluedNAV: Decimal) {
         self.proxy = proxy
         self.proxyReturn = proxyReturn
@@ -26,11 +37,10 @@ public struct Revaluation: Sendable, Equatable {
     }
 }
 
-/// The full picture presented to the shell: the primary revaluation (SOXX), the
-/// premium/discount against the live market price, and the cross-check revaluations
-/// from the secondary proxies.
+/// The full picture presented to the shell: the primary revaluation, the premium/discount
+/// against the live market price, and the cross-check revaluations from the other proxies.
 public struct RevaluationReport: Sendable, Equatable {
-    /// Primary revaluation (SOXX by default).
+    /// Primary revaluation — the best proxy available under `ProxySymbol.preferenceOrder`.
     public let primary: Revaluation
     /// All proxy revaluations available, keyed by symbol, for the cross-check panel.
     public let crossChecks: [Revaluation]

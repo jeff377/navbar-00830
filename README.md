@@ -3,8 +3,8 @@
 macOS 選單列 App：即時顯示台股 **00830（國泰費城半導體 ETF）** 的盤後重估淨值、市價與折溢價，輔助盤中進場判斷。
 
 - 選單列常駐顯示折溢價 %，超過門檻變色
-- 點開 popover 看淨值 / 市價 / 折溢價 / 時間戳 / 市場時段 / 三代理交叉值
-- 盤後淨值採 **ETF 代理法（SOXX 為主，SOXQ/SOXL 交叉驗證）**
+- 點開 popover 看淨值 / 市價 / 折溢價 / 時間戳 / 市場時段 / 四代理交叉值
+- 重估採 **代理法（美股盤中用 SOX 指數本身，其餘時段用 SOXQ；SOXX/SOXL 交叉）**，見 [ADR 0005](docs/adr/0005-以-sox-指數為主要代理.md)
 
 ## 執行畫面
 
@@ -20,8 +20,8 @@ macOS 選單列 App：即時顯示台股 **00830（國泰費城半導體 ETF）*
 
 | 模組 | 職責 |
 |---|---|
-| **NAV830Core** | 計算層（靈魂）：重估淨值 / 折溢價 / 去槓桿 / 三代理交叉、`MarketClock` 時序狀態機（ET 基準、DST-aware）、US/TW 行事曆。純邏輯，無網路、無 UI。 |
-| **NAV830Fetch** | 資料源：TWSE MIS（市價）· Nasdaq（SOXX/SOXQ/SOXL，盤中＋盤後）· Cathay `estimateNav`（官方預估淨值，已內含官方盤中匯率）；可注入 HTTPClient、SOXX→SOXQ→SOXL 降級。 |
+| **NAV830Core** | 計算層（靈魂）：重估淨值 / 折溢價 / 去槓桿 / 四代理交叉與偏好序、`MarketClock` 時序狀態機（ET 基準、DST-aware）、US/TW 行事曆。純邏輯，無網路、無 UI。 |
+| **NAV830Fetch** | 資料源：TWSE MIS（市價）· Nasdaq（SOX 指數 + SOXQ/SOXX/SOXL，盤中＋盤後）· Cathay `estimateNav`（官方預估淨值，已內含官方盤中匯率）；可注入 HTTPClient、SOX→SOXQ→SOXX→SOXL 降級。 |
 | **NAV830App** | 呈現層：AppKit `NSStatusItem`（彩色文字）+ `NSPopover`（SwiftUI 明細），依 `MarketPhase` 分層刷新。 |
 
 **重估公式**（三時段通用）：`重估淨值 = 官方預估淨值 ×(最新美股價 / 基準收盤)`。官方預估淨值已內含官方盤中匯率，故不另抓匯率（`fxFactor = 1`，見 [ADR 0002](docs/adr/0002-重估模型.md)）。美股盤中用即時價、盤後用盤後價、台股盤中用凍結盤後價。**基準收盤是官方淨值結算時用的那場**（`closingNavDate`），不是最近一場——美股收盤後到台股次日開盤前的窗口兩者會差一場，需改錨。

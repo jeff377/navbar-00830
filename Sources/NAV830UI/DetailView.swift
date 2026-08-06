@@ -97,7 +97,9 @@ public struct DetailView: View {
     private func crossCheck(_ quotes: [ProxyQuote]) -> some View {
         let inavByProxy = Dictionary(uniqueKeysWithValues: (store.snapshot?.report?.crossChecks ?? []).map { ($0.proxy, $0.revaluedNAV) })
         return VStack(alignment: .leading, spacing: 4) {
-            Text("美股代理盤後").font(.caption).foregroundStyle(.secondary)
+            // Not "盤後": SOX only ever reports a regular-session move, and during US trading
+            // hours every row is a live regular move.
+            Text("美股代理漲跌").font(.caption).foregroundStyle(.secondary)
             ForEach(quotes, id: \.symbol) { q in
                 HStack {
                     // The symbol opens Nasdaq's own page: regular close and after-hours print side

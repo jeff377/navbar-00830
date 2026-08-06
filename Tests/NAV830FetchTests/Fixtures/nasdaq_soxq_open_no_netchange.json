@@ -1,0 +1,36 @@
+{
+    "data": {
+        "symbol": "SOXQ",
+        "companyName": "Invesco PHLX Semiconductor ETF",
+        "stockType": "Exchange-Traded Fund",
+        "exchange": "NASDAQ-GM",
+        "isNasdaqListed": true,
+        "isNasdaq100": false,
+        "isHeld": false,
+        "primaryData": {
+            "lastSalePrice": "$95.86",
+            "netChange": "",
+            "percentageChange": "",
+            "deltaIndicator": "",
+            "lastTradeTimestamp": "Aug 5, 2026 12:29 PM ET",
+            "isRealTime": true,
+            "bidPrice": "$95.85",
+            "askPrice": "$95.90",
+            "bidSize": "270",
+            "askSize": "575",
+            "volume": "1,122,129.082694",
+            "currency": null
+        },
+        "secondaryData": null,
+        "marketStatus": "Open",
+        "assetClass": "ETF",
+        "keyStats": null,
+        "notifications": []
+    },
+    "message": null,
+    "status": {
+        "rCode": 200,
+        "bCodeMessage": null,
+        "developerMessage": null
+    }
+}

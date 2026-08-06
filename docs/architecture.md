@@ -14,7 +14,7 @@
 ┌───────────────┴─────────────────────────────┐
 │  NAV830Fetch(資料源,依 Foundation/URLSession) │
 │  · CathayETFSource:官方淨值 + 市價(一次抓)     │
-│  · NasdaqProxySource:SOXX/SOXQ/SOXL + 盤後      │
+│  · NasdaqProxySource:SOX 指數 + 三 ETF + 盤後   │
 │  · DataFeed:彙整 → 呼叫 Core 計算                │
 └───────────────▲─────────────────────────────┘
                 │
@@ -50,7 +50,11 @@ Core / Fetch **零** AppKit 依賴 → iPhone 直接重用(見 [`plans/01-ios-�
 | 數字 | 來源 | 備註 |
 |---|---|---|
 | 官方預估淨值 / 昨收淨值 / 市價 | Cathay `GetRealTimeEstimateNavList` | 一次抓齊,對齊官網 |
-| SOXX/SOXQ/SOXL 盤後 | Nasdaq `info` + `extended-trading` | 盤後結束後由 extended-trading 取回定格價 |
+| SOX 指數(美股盤中主值) | Nasdaq `info?assetclass=index` | 00830 的標的指數本身;只在 09:30–16:00 ET 計算,收盤後讓位給 ETF |
+| SOXQ/SOXX/SOXL 盤後 | Nasdaq `info` + `extended-trading` | 盤後結束後由 extended-trading 取回定格價 |
+
+代理偏好序 `SOX → SOXQ → SOXX → SOXL`:SOXQ 與 00830 同追 PHLX SOX,SOXX(ICE Semiconductor)與
+SOXL(NYSE Semiconductor)追的是**別的籃子**,只作交叉。詳見 [ADR 0005](adr/0005-以-sox-指數為主要代理.md)。
 
 Yahoo(429)、台銀 CSV(bot 牆)、open.er-api FX(estimateNav 已含匯率)均已淘汰。詳見 [ADR 0003](adr/0003-資料源選型.md)。
 

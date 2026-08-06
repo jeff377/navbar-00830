@@ -1,12 +1,17 @@
 import Foundation
 
-/// A US semiconductor ETF used as a proxy for the PHLX SOX move.
+/// A US instrument used as a proxy for the PHLX SOX move that 00830 tracks.
 public enum ProxySymbol: String, Sendable, CaseIterable {
-    /// iShares Semiconductor ETF — tracks ICE Semiconductor. Primary (best liquidity).
-    case soxx = "SOXX"
-    /// Invesco PHLX Semiconductor ETF — tracks PHLX SOX (same index as 00830). Cross-check.
+    /// PHLX Semiconductor Sector — the index 00830 itself tracks, so it carries no tracking
+    /// error, no ETF premium and no spread. Regular session only (see `hasExtendedHours`).
+    case sox = "SOX"
+    /// Invesco PHLX Semiconductor ETF — tracks PHLX SOX, the same index as 00830.
     case soxq = "SOXQ"
-    /// Direxion Daily Semiconductor Bull 3x — leveraged. Its move is 3x the underlying.
+    /// iShares Semiconductor ETF — tracks ICE Semiconductor, a *different* basket. Best
+    /// liquidity of the three ETFs, which is why it leads outside the regular session.
+    case soxx = "SOXX"
+    /// Direxion Daily Semiconductor Bull 3x — tracks the NYSE Semiconductor Index, also a
+    /// different basket, and leveraged: its move is 3x the underlying.
     case soxl = "SOXL"
 
     /// Daily leverage factor. The proxy's percentage move is divided by this to recover the
@@ -14,6 +19,31 @@ public enum ProxySymbol: String, Sendable, CaseIterable {
     public var leverage: Int {
         self == .soxl ? 3 : 1
     }
+
+    /// Nasdaq's `assetclass` query value. An index is not an ETF and 404s under `etf`.
+    public var assetClass: String {
+        self == .sox ? "index" : "etf"
+    }
+
+    /// Whether the symbol has pre/post-market prices at all. An index is only calculated during
+    /// the regular session, so outside it the quote is just the standing close.
+    public var hasExtendedHours: Bool {
+        self != .sox
+    }
+
+    /// Which proxy should set the headline figure, best first.
+    ///
+    /// SOX leads because it *is* 00830's benchmark. The others are not interchangeable with it:
+    /// SOXX tracks ICE Semiconductor and SOXL the NYSE Semiconductor Index, different baskets
+    /// that diverge by most of a percentage point on a dispersed day. Measured 2026-08-05 12:05 ET
+    /// off the same official NAV (87.21) and anchor (ET 08/04): SOX −0.47%, SOXQ −0.54%,
+    /// SOXX −1.30%, SOXL/3 −1.20% — two clusters, split by index rather than by noise, worth
+    /// 0.7 TWD of revalued NAV. SOXQ is next because it tracks PHLX SOX too; SOXX and SOXL follow
+    /// on liquidity alone.
+    ///
+    /// NOTE: this is preference, not eligibility — SOX steps aside outside the regular session
+    /// (see `Revaluation.canLeadReport`).
+    public static let preferenceOrder: [ProxySymbol] = [.sox, .soxq, .soxx, .soxl]
 }
 
 /// Which US session the latest price came from — for display and freshness, and to be honest
